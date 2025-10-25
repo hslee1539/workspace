@@ -1,0 +1,47 @@
+{
+  "name": "__PROJECT_TITLE__",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "runArgs": ["--privileged"],
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+  "mounts": [
+    "source=gradle-cache-__PROJECT_SLUG__,target=/home/vscode/.gradle,type=volume",
+    "source=android-emulator-__PROJECT_SLUG__,target=/home/vscode/.android/avd,type=volume"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-azuretools.vscode-docker",
+        "msjsdiag.vscode-react-native",
+        "vscjava.vscode-java-pack",
+        "kotlinlang.kotlin",
+        "mhutchie.git-graph"
+      ],
+      "settings": {
+        "java.configuration.runtimes": [
+          {
+            "name": "JavaSE-17",
+            "path": "/usr/lib/jvm/msopenjdk-current",
+            "default": true
+          }
+        ],
+        "gradle.java.home": "/usr/lib/jvm/msopenjdk-current",
+        "kotlin.languageServer.enabled": true
+      }
+    }
+  },
+  "portsAttributes": {
+    "8081": {
+      "label": "Android emulator"
+    }
+  },
+  "forwardPorts": [8080, 8081],
+  "postCreateCommand": "bash .devcontainer/scripts/post-create.sh",
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "8gb"
+  }
+}
