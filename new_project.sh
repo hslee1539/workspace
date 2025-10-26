@@ -25,14 +25,32 @@ USAGE
 
 slugify() {
   local text="$1"
-  text="${text,,}"
-  text="$(echo "$text" | tr ' ' '-' | tr -cs 'a-z0-9-_' '-')"
-  text="${text##-}"
-  text="${text%%-}"
-  if [[ -z "$text" ]]; then
-    text="project"
+
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "$text" <<'PY'
+import re
+import sys
+import unicodedata
+
+text = sys.argv[1]
+text = unicodedata.normalize("NFKC", text).strip()
+text = text.lower()
+text = re.sub(r"[\s]+", "-", text)
+text = re.sub(r"[\\/]+", "-", text)
+text = re.sub(r"-+", "-", text)
+text = text.strip("-_")
+print(text if text else "project", end="")
+PY
+  else
+    text="${text,,}"
+    text="$(echo "$text" | tr ' ' '-' | tr -cs 'a-z0-9-_' '-')"
+    text="${text##-}"
+    text="${text%%-}"
+    if [[ -z "$text" ]]; then
+      text="project"
+    fi
+    printf '%s' "$text"
   fi
-  printf '%s' "$text"
 }
 
 escape_sed() {
