@@ -58,3 +58,33 @@ Linux에서 `host.docker.internal` 이 동작하지 않는다면 Docker를 최�
 
 ## TODO
 - [ ] JetBrains Fleet Dev Container 자동화 스크립트 및 가이드 공개 (준비 중)
+
+## 웹 기반 세션 관리 서버
+스크립트를 직접 실행하지 않고도 세션을 만들 수 있도록 간단한 웹 서버를 제공합니다. 서버는 `127.0.0.1:1539`에서 Git 저장소 주소와 프로젝트 이름을 입력받아 기존 스크립트와 동일한 방식으로 세션을 생성하고, 사용 가능한 경우 VS Code / VS Code Insiders / code-server를 자동으로 실행합니다.
+
+### Python으로 직접 실행
+```bash
+python -m server.app
+```
+
+실행 후 브라우저에서 `http://127.0.0.1:1539` 에 접속하면 됩니다.
+
+### Docker로 실행
+```bash
+docker build -f docker/server.Dockerfile -t android-dev-server .
+docker run --rm -it \
+  -p 1539:1539 \
+  -v "$(pwd)/session:/workspace/session" \
+  android-dev-server
+```
+
+### Podman으로 실행
+```bash
+podman build -f docker/server.Dockerfile -t android-dev-server .
+podman run --rm -it \
+  -p 1539:1539 \
+  -v "$(pwd)/session:/workspace/session" \
+  android-dev-server
+```
+
+컨테이너를 사용할 때도 호스트의 `session/` 폴더를 마운트하면 Dev Container와 동일한 구조로 세션을 재사용할 수 있습니다.
