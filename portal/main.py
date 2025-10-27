@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import secrets
+import shlex
 import socket
 import subprocess
 import threading
@@ -23,6 +24,8 @@ SESSION_ROOT = BASE_DIR / "session"
 DEVCONTAINER_TEMPLATE = BASE_DIR / "templates" / "devcontainer.json.tpl"
 DEFAULT_IMAGE = os.environ.get("DEV_CONTAINER_IMAGE", "android-dev-base:latest")
 DEFAULT_ACCESS_HOST = os.environ.get("PORTAL_ACCESS_HOST", "127.0.0.1")
+CONTAINER_CLI = os.environ.get("CONTAINER_CLI", "docker")
+CONTAINER_CLI_ARGS = shlex.split(os.environ.get("CONTAINER_CLI_ARGS", ""))
 
 SESSION_ROOT.mkdir(exist_ok=True)
 
@@ -245,7 +248,8 @@ class SessionManager:
         if not workspace.exists():
             raise RuntimeError("워크스페이스 경로를 생성하지 못했습니다.")
         command = [
-            "docker",
+            CONTAINER_CLI,
+            *CONTAINER_CLI_ARGS,
             "run",
             "-d",
             "--name",
@@ -281,7 +285,7 @@ class SessionManager:
     @staticmethod
     def _stop_container(container_name: str) -> None:
         subprocess.run(
-            ["docker", "rm", "-f", container_name],
+            [CONTAINER_CLI, *CONTAINER_CLI_ARGS, "rm", "-f", container_name],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,

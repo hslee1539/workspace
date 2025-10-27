@@ -31,7 +31,34 @@ docker build -t android-dev-base .
 4. 컨테이너가 준비되면 VS Code 터미널에서 Android SDK, `adb`, Gradle 등을 바로 사용할 수 있습니다.
 
 ## VS Code Web 포털 서버 실행
-로컬에서 컨테이너 세션을 생성하고 VS Code Web(UI)으로 접속하고 싶다면 FastAPI 기반 포털 서버를 사용할 수 있습니다.
+FastAPI 기반 포털 서버를 이용하면 브라우저에서 Git 저장소 URL과 프로젝트 이름만으로 VS Code Web(UI)에 접속할 수 있습니다.
+
+### Docker / Podman으로 실행하기 (권장)
+Python을 로컬에 설치할 필요 없이 컨테이너로 포털을 실행할 수 있습니다.
+
+1. `android-dev-base` 이미지를 먼저 빌드합니다. (위 "사전 준비" 참고)
+2. `docker compose up --build portal` 명령으로 포털을 실행합니다. Podman을 사용한다면 `CONTAINER_CLI=podman podman compose up --build portal` 을 사용할 수 있습니다.
+   - Docker를 사용할 때는 호스트의 Docker 소켓(`/var/run/docker.sock`)과 현재 디렉터리의 `session/` 폴더가 컨테이너에 마운트됩니다. (권장: 실행 전에 `mkdir -p session` 으로 폴더를 만들어 두세요.)
+   - Podman을 사용할 경우 `CONTAINER_CLI=podman` 환경 변수를 설정하고 Podman 소켓 경로(`/run/user/<uid>/podman/podman.sock`)를 `/var/run/docker.sock` 에 마운트하세요.
+3. 브라우저에서 `http://127.0.0.1:1539` 에 접속하면 자동으로 컨테이너가 할당되고 VS Code Web이 표시됩니다.
+
+필요하다면 다음과 같이 단일 컨테이너 명령으로 실행할 수도 있습니다.
+
+```bash
+docker build -t android-dev-portal -f portal/Dockerfile .
+docker run --rm -it \
+  -e PORTAL_ACCESS_HOST=127.0.0.1 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v $(pwd)/session:/app/session \
+  -p 1539:1539 \
+  --name android-dev-portal \
+  android-dev-portal
+```
+
+Podman을 사용할 때는 위 명령에서 `docker` 대신 `podman` 을 사용하고, `CONTAINER_CLI=podman` 환경 변수를 추가하세요.
+
+### 로컬 Python 환경에서 실행하기
+가상환경 등 로컬 Python 환경에서 실행하려면 기존과 동일하게 진행하면 됩니다.
 
 1. Python 의존성을 설치합니다.
    ```bash
@@ -41,13 +68,14 @@ docker build -t android-dev-base .
    ```bash
    uvicorn portal.main:app --host 0.0.0.0 --port 1539
    ```
-3. 브라우저에서 `http://127.0.0.1:1539` 에 접속해 Git 저장소 URL과 프로젝트 이름을 입력하면 자동으로 컨테이너가 할당되고 VS Code Web이 표시됩니다.
 
 ### 환경 변수
-- `DEV_CONTAINER_IMAGE`: 세션 실행에 사용할 Docker 이미지(기본값 `android-dev-base:latest`).
+- `DEV_CONTAINER_IMAGE`: 세션 실행에 사용할 컨테이너 이미지(기본값 `android-dev-base:latest`).
 - `PORTAL_ACCESS_HOST`: 포털이 링크를 생성할 때 사용할 호스트명(기본값 `127.0.0.1`). 리버스 프록시 뒤에서 실행한다면 외부에서 접근 가능한 호스트명을 지정하세요.
+- `CONTAINER_CLI`: 컨테이너 실행에 사용할 CLI 명령어(`docker`, `podman` 등, 기본값 `docker`).
+- `CONTAINER_CLI_ARGS`: 컨테이너 CLI에 추가로 전달할 인자(예: `--log-level debug`).
 
-> **참고**: 포털은 Docker CLI가 사용 가능한 환경에서 동작합니다. 세션을 만들기 전에 `android-dev-base` 이미지를 빌드해 두어야 하며, 새 컨테이너는 포트 `20000-20999` 구간을 순차적으로 사용합니다.
+> **참고**: 포털은 컨테이너 엔진 CLI(Docker 또는 Podman 호환)가 사용 가능한 환경에서 동작합니다. 세션을 만들기 전에 `android-dev-base` 이미지를 빌드해 두어야 하며, 새 컨테이너는 포트 `20000-20999` 구간을 순차적으로 사용합니다.
 
 ## 기존 프로젝트 열기
 이미 클론해 둔 프로젝트가 있다면 VS Code 명령 팔레트에서 `Dev Containers: Reopen in Container` 를 실행하거나, `Dev Containers: Clone Repository in Container Volume...` 명령으로 직접 복제해도 됩니다. 이때도 `android-dev-base` 이미지가 미리 빌드되어 있어야 합니다.
