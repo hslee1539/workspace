@@ -1,56 +1,60 @@
-# workspace
+# Android Dev Container Workspace
 
-안드로이드 개발 dev container 관리 프로젝트
+안드로이드 앱 개발 환경을 Dev Container로 빠르게 구성하기 위한 템플릿입니다. 컨테이너에서 Android SDK, adb, Gradle을 바로 사용할 수 있도록 사전 설정된 이미지를 제공합니다.
 
-## Docker 이미지
+## 준비물
+- Docker 24 이상 (Linux에서는 `--add-host=host.docker.internal:host-gateway` 옵션 사용을 권장)
+- VS Code + Dev Containers 확장 (CLI `code` 명령 포함)
+- OpenAI API 키 (`OPENAI_API_KEY`, 선택)
 
-루트의 `Dockerfile` 은 Ubuntu 22.04 기반 안드로이드 개발 이미지다. 다음이 포함되어 있다.
-
-- OpenJDK 17
-- Android SDK (platform-tools, build-tools 34/35, platforms android-35/36, NDK 29.0.13113456, CMake 3.18.1/3.22.1)
-- Node.js 20 및 npm 글로벌 패키지: `@openai/codex@0.46.0`, `opencode-ai`, `@qwen-code/qwen-code@0.0.15-nightly.8`
-- `OPENAI_BASE_URL=https://api.openai.com/v1`, `OPENAI_MODEL=gpt-5-mini`
-
-이미지 빌드:
+## 사전 준비: Docker 이미지 빌드
+Dev Container에서 사용하는 `android-dev-base` 이미지는 자동으로 만들어지지 않습니다. 작업을 시작하기 전에 한 번만 다음 명령으로 이미지를 빌드하세요.
 
 ```bash
+git clone <this-repo-url>
+cd workspace
 docker build -t android-dev-base .
 ```
 
-## OPENAI 환경 변수
+## 빠른 시작 (새 프로젝트)
+1. 스크립트에 실행 권한을 부여합니다.
+   ```bash
+   chmod +x scripts/*.sh
+   ```
+2. 새 세션을 생성합니다. 인자를 생략하면 프롬프트에서 값을 입력할 수 있습니다.
+   ```bash
+   ./scripts/code_new_project.sh [git-url] [project-name]
+   ```
+   - Git URL을 지정하면 해당 저장소가 `session/<timestamp>-<project>/` 아래에 복제됩니다.
+   - URL을 비우면 빈 프로젝트 골격이 준비됩니다.
+3. VS Code가 세션 폴더를 열면 Dev Containers 확장에서 "Reopen in Container" 알림이 표시됩니다. 확인을 누르면 앞서 빌드한 `android-dev-base` 이미지를 기반으로 컨테이너가 시작됩니다.
+4. 컨테이너가 준비되면 VS Code 터미널에서 Android SDK, `adb`, Gradle 등을 바로 사용할 수 있습니다.
 
-호스트에서 `OPENAI_API_KEY` 를 설정하면 dev container 안으로 전달된다.
+## 기존 프로젝트 열기
+이미 클론해 둔 프로젝트가 있다면 VS Code 명령 팔레트에서 `Dev Containers: Reopen in Container` 를 실행하거나, `Dev Containers: Clone Repository in Container Volume...` 명령으로 직접 복제해도 됩니다. 이때도 `android-dev-base` 이미지가 미리 빌드되어 있어야 합니다.
+
+## 환경 변수
+OpenAI API 연동이 필요하다면 컨테이너 실행 전에 키를 내보내세요.
 
 ```bash
 export OPENAI_API_KEY="sk-..."
 ```
 
-스크립트를 실행해 세션을 만들면 컨테이너 내부에서 동일한 키를 사용할 수 있다.
-
-## 외부 ADB 사용
-
-컨테이너는 기본적으로 `ADB_SERVER_SOCKET=tcp:host.docker.internal:5037` 를 설정하여 호스트의 ADB 서버에 연결한다. 호스트에서 다음을 실행해 장치를 인식시킨 뒤 사용한다.
+## ADB 연동
+컨테이너는 기본적으로 `ADB_SERVER_SOCKET=tcp:host.docker.internal:5037` 으로 호스트 ADB 서버에 연결합니다. 실행 전 호스트에서 다음을 확인하세요.
 
 ```bash
 adb start-server
 adb devices
 ```
 
-Linux 호스트에서는 Docker 가 `host.docker.internal` 이름을 제공하지 않는 경우 `--add-host=host.docker.internal:host-gateway` 를 지원하는 최신 버전을 사용해야 한다.
+Linux에서 `host.docker.internal` 이 동작하지 않는다면 Docker를 최신 버전으로 업데이트하고 컨테이너 실행 시 `--add-host=host.docker.internal:host-gateway` 를 추가하세요.
 
-## 새 프로젝트 스크립트
+## 문제 해결
+- ADB가 연결되지 않으면 포트 5037과 방화벽 설정을 확인하세요.
+- VS Code가 자동으로 열리지 않으면 CLI 설치를 확인하고 세션 폴더를 수동으로 여세요.
+- `android-dev-base` 이미지가 없다는 오류가 뜨면 README의 빌드 단계를 다시 수행하세요.
+- OpenAI API를 사용하려면 컨테이너 실행 전에 환경 변수를 설정해야 합니다.
 
-`scripts/code_new_project.sh` 와 `scripts/fleet_new_project.sh` 는 각각 VS Code 와 JetBrains Fleet 으로 새 세션을 연다.
-
-```bash
-./scripts/code_new_project.sh [git-url] [project-name]
-./scripts/fleet_new_project.sh [git-url] [project-name]
-```
-
-- 인자를 생략하면 실행 중 입력을 받아 설정할 수 있다.
-- Git URL 을 비워 두면 빈 프로젝트가 생성된다.
-- 프로젝트 이름을 비워 두면 타임스탬프만 사용한다.
-- `session/<timestamp>-<project>` 폴더 아래 `.devcontainer/devcontainer.json` 이 자동 생성된다.
-- VS Code CLI(`code`) 또는 JetBrains Fleet CLI(`fleet`/`jetbrains-fleet`) 가 설치되어 있으면 자동으로 폴더가 열린다.
-
-macOS 의 Fleet 앱만 설치되어 CLI 가 없으면 `open -a "JetBrains Fleet"` 으로 실행을 시도한다.
+## TODO
+- [ ] JetBrains Fleet Dev Container 자동화 스크립트 및 가이드 공개 (준비 중)
