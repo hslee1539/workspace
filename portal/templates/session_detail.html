@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>{{ session.project_name }} - VS Code Web</title>
+  <style>
+    body {
+      font-family: "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+    header {
+      padding: 1.5rem 3rem;
+      background: rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(148, 163, 184, 0.3);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.6rem;
+    }
+    header .meta {
+      display: flex;
+      gap: 1.5rem;
+      align-items: center;
+      color: #94a3b8;
+      font-size: 0.95rem;
+    }
+    header .actions {
+      display: flex;
+      gap: 0.75rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.6rem 1.4rem;
+      border-radius: 999px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #38bdf8, #6366f1);
+      color: white;
+    }
+    .btn-secondary {
+      background: rgba(148, 163, 184, 0.2);
+      color: #e2e8f0;
+    }
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 24px rgba(99, 102, 241, 0.3);
+    }
+    .status {
+      padding: 0.35rem 1rem;
+      border-radius: 999px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 0.8rem;
+    }
+    .status.pending { background: rgba(250, 204, 21, 0.15); color: #facc15; }
+    .status.launching { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
+    .status.running { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+    .status.error { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+    .status.stopped { background: rgba(148, 163, 184, 0.15); color: #cbd5f5; }
+    .content {
+      padding: 2rem 3rem;
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 2rem;
+    }
+    .card {
+      background: rgba(15, 23, 42, 0.85);
+      border-radius: 16px;
+      padding: 1.5rem;
+      box-shadow: 0 24px 48px rgba(15, 23, 42, 0.45);
+      border: 1px solid rgba(99, 102, 241, 0.2);
+    }
+    .card h2 {
+      margin-top: 0;
+      font-size: 1.2rem;
+      margin-bottom: 1rem;
+    }
+    .info-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 0.75rem;
+    }
+    .info-list li {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      background: rgba(30, 41, 59, 0.6);
+      padding: 0.9rem 1rem;
+      border-radius: 12px;
+    }
+    .info-label {
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #94a3b8;
+    }
+    .info-value {
+      font-size: 1rem;
+      word-break: break-all;
+    }
+    iframe {
+      width: 100%;
+      height: calc(100vh - 140px);
+      border: none;
+      border-radius: 16px;
+      background: #111827;
+      box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.15);
+    }
+    .placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: calc(100vh - 140px);
+      border-radius: 16px;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px dashed rgba(148, 163, 184, 0.4);
+      color: #cbd5f5;
+      font-size: 1rem;
+      text-align: center;
+      padding: 2rem;
+    }
+    .error-box {
+      border: 1px solid rgba(248, 113, 113, 0.4);
+      background: rgba(248, 113, 113, 0.1);
+      color: #fecaca;
+      padding: 1rem;
+      border-radius: 12px;
+      margin-top: 1.5rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>{{ session.project_name }}</h1>
+      <div class="meta">
+        <span class="status {{ session.status.value }}">{{ session.status.value }}</span>
+        <span>포트 {{ session.port }}</span>
+        <span>세션 ID {{ session.id }}</span>
+      </div>
+    </div>
+    <div class="actions">
+      <a class="btn btn-secondary" href="/">← 대시보드로</a>
+      <form method="post" action="/sessions/{{ session.id }}/stop" style="margin:0;">
+        <button type="submit" class="btn btn-secondary">세션 중지</button>
+      </form>
+      {% if session.access_url %}
+      <a class="btn btn-primary" href="{{ session.access_url }}" target="_blank" rel="noopener">새 창에서 열기</a>
+      {% endif %}
+    </div>
+  </header>
+  <div class="content">
+    <aside class="card">
+      <h2>세션 정보</h2>
+      <ul class="info-list">
+        <li>
+          <span class="info-label">프로젝트 이름</span>
+          <span class="info-value">{{ session.project_name }}</span>
+        </li>
+        <li>
+          <span class="info-label">Git 저장소</span>
+          <span class="info-value">{{ session.git_url or '지정되지 않음' }}</span>
+        </li>
+        <li>
+          <span class="info-label">포트 / 접근 URL</span>
+          <span class="info-value">
+            {{ session.port }}
+            {% if session.access_url %}
+              <br /><a href="{{ session.access_url }}" style="color:#38bdf8;" target="_blank" rel="noopener">{{ session.access_url }}</a>
+            {% endif %}
+          </span>
+        </li>
+        <li>
+          <span class="info-label">생성 시간</span>
+          <span class="info-value">{{ session.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+        </li>
+        <li>
+          <span class="info-label">업데이트 시간</span>
+          <span class="info-value">{{ session.updated_at.strftime('%Y-%m-%d %H:%M:%S') }}</span>
+        </li>
+      </ul>
+      {% if session.error_message %}
+      <div class="error-box">
+        <strong>오류:</strong>
+        <div>{{ session.error_message }}</div>
+      </div>
+      {% endif %}
+    </aside>
+    <section>
+      {% if session.status.value == 'running' and session.access_url %}
+      <iframe src="{{ session.access_url }}"></iframe>
+      {% elif session.status.value == 'error' %}
+      <div class="placeholder">컨테이너를 시작하는 동안 오류가 발생했습니다. 오류 메시지를 확인하고 다시 시도하세요.</div>
+      {% else %}
+      <div class="placeholder">컨테이너를 준비하는 중입니다. 잠시 후 자동으로 VS Code Web이 표시됩니다.</div>
+      {% endif %}
+    </section>
+  </div>
+</body>
+</html>
