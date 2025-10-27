@@ -1,0 +1,14 @@
+services:
+  portal:
+    build:
+      context: .
+      dockerfile: portal/Dockerfile
+    environment:
+      PORTAL_ACCESS_HOST: 127.0.0.1
+      DEV_CONTAINER_IMAGE: android-dev-base:latest
+      CONTAINER_CLI: docker
+    ports:
+      - "1539:1539"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./session:/app/session
