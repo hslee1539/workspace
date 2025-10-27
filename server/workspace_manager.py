@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
@@ -12,6 +13,8 @@ from typing import Optional
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SESSION_ROOT = ROOT_DIR / "session"
 TEMPLATE_PATH = ROOT_DIR / "templates" / "devcontainer.json.tpl"
+
+LOGGER = logging.getLogger("server.workspace")
 
 
 class WorkspaceError(RuntimeError):
@@ -41,6 +44,7 @@ def create_session_dir(project_name: str) -> Path:
     dir_name = f"{timestamp}-{slug}" if slug else timestamp
     session_dir = SESSION_ROOT / dir_name
     session_dir.mkdir(parents=True, exist_ok=False)
+    LOGGER.info("세션 디렉터리 생성: %s", session_dir)
     return session_dir
 
 
@@ -53,6 +57,7 @@ def clone_or_initialize(session_dir: Path, repo_url: str) -> None:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
+            LOGGER.info("Git 저장소를 클론했습니다: %s -> %s", repo_url, session_dir)
         except subprocess.CalledProcessError as exc:
             shutil.rmtree(session_dir, ignore_errors=True)
             raise WorkspaceError(
@@ -60,12 +65,14 @@ def clone_or_initialize(session_dir: Path, repo_url: str) -> None:
             ) from exc
     else:
         session_dir.mkdir(parents=True, exist_ok=True)
+        LOGGER.info("빈 프로젝트 디렉터리를 초기화했습니다: %s", session_dir)
 
 
 def apply_devcontainer_template(session_dir: Path, project_name: str) -> None:
     devcontainer_dir = session_dir / ".devcontainer"
     devcontainer_path = devcontainer_dir / "devcontainer.json"
     if devcontainer_path.exists():
+        LOGGER.debug("기존 devcontainer.json이 존재하여 생성을 건너뜁니다: %s", devcontainer_path)
         return
     if not TEMPLATE_PATH.exists():
         raise WorkspaceError("devcontainer 템플릿 파일을 찾을 수 없습니다.")
@@ -74,6 +81,7 @@ def apply_devcontainer_template(session_dir: Path, project_name: str) -> None:
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
     template = template.replace("__PROJECT_NAME__", name)
     devcontainer_path.write_text(template, encoding="utf-8")
+    LOGGER.info("devcontainer 템플릿을 생성했습니다: %s", devcontainer_path)
 
 
 def _try_open_with_editor(session_dir: Path) -> tuple[Optional[str], Optional[str]]:
@@ -113,6 +121,11 @@ def create_session(repo_url: str, project_name: str) -> SessionResult:
     editor_command, editor_info = _try_open_with_editor(session_dir)
 
     session_id = session_dir.name
+    LOGGER.info(
+        "세션 구성이 완료되었습니다: session_id=%s, editor=%s",
+        session_id,
+        editor_command or "(none)",
+    )
 
     return SessionResult(
         session_id=session_id,

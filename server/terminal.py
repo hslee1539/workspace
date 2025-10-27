@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import pty
 import select
@@ -7,6 +8,9 @@ import subprocess
 import threading
 from pathlib import Path
 from typing import Optional
+
+
+LOGGER = logging.getLogger("server.terminal")
 
 
 class TerminalSession:
@@ -31,6 +35,7 @@ class TerminalSession:
         self._closed = False
         self._reader = threading.Thread(target=self._drain_output, daemon=True)
         self._reader.start()
+        LOGGER.info("새 터미널 세션을 시작했습니다: cwd=%s, pid=%s", self._session_dir, self._process.pid)
 
     @property
     def closed(self) -> bool:
@@ -83,6 +88,7 @@ class TerminalSession:
                 os.close(self._master_fd)
             except OSError:
                 pass
+        LOGGER.info("터미널 세션이 종료되었습니다: cwd=%s", self._session_dir)
 
 
 class TerminalManager:
@@ -94,6 +100,7 @@ class TerminalManager:
         with self._lock:
             terminal = self._terminals.get(session_id)
             if terminal is None or terminal.closed:
+                LOGGER.info("터미널 세션 초기화: session_id=%s", session_id)
                 terminal = TerminalSession(session_dir)
                 self._terminals[session_id] = terminal
             return terminal

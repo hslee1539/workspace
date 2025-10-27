@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import html
 import json
+import logging
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -12,6 +13,10 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from .terminal import TerminalManager
 from .workspace_manager import SessionResult, WorkspaceError, create_session
+
+
+LOGGER = logging.getLogger("server.app")
+HTTP_LOGGER = logging.getLogger("server.http")
 
 HOST = "0.0.0.0"
 PORT = 1539
@@ -750,7 +755,12 @@ class WorkspaceRequestHandler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.METHOD_NOT_ALLOWED.value, "허용되지 않은 메서드입니다.")
 
     def log_message(self, format: str, *args) -> None:  # noqa: A003
-        return
+        HTTP_LOGGER.info(
+            "%s - - [%s] %s",
+            self.client_address[0],
+            self.log_date_time_string(),
+            format % args,
+        )
 
     def _handle_create_session(self) -> None:
         content_length = int(self.headers.get("Content-Length", "0"))
@@ -759,8 +769,14 @@ class WorkspaceRequestHandler(BaseHTTPRequestHandler):
         repo_url = payload.get("repo_url", [""])[0]
         project_name = payload.get("project_name", [""])[0]
         try:
+            LOGGER.info(
+                "새 세션 생성 요청: repo_url=%s, project_name=%s",
+                repo_url or "(none)",
+                project_name or "(none)",
+            )
             result = create_session(repo_url, project_name)
         except WorkspaceError as exc:
+            LOGGER.error("세션 생성 실패: %s", exc)
             content = render_page(str(exc), error=True)
             self._send_html(content, status=HTTPStatus.BAD_REQUEST)
             return
@@ -770,6 +786,11 @@ class WorkspaceRequestHandler(BaseHTTPRequestHandler):
         )
         if result.editor_command:
             message += f" · 실행된 명령: {result.editor_command}"
+        LOGGER.info(
+            "세션 생성 완료: session_id=%s, editor=%s",
+            result.session_id,
+            result.editor_command or "(none)",
+        )
         content = render_page(message)
         self._send_html(content, status=HTTPStatus.CREATED)
 
@@ -781,9 +802,11 @@ class WorkspaceRequestHandler(BaseHTTPRequestHandler):
         session_id = segments[1]
         session = SESSION_STORE.get(session_id)
         if not session:
+            LOGGER.warning("존재하지 않는 세션 페이지 요청: %s", session_id)
             self.send_error(HTTPStatus.NOT_FOUND.value, "세션을 찾을 수 없습니다.")
             return
         TERMINAL_MANAGER.ensure(session.session_id, session.session_dir)
+        LOGGER.info("세션 페이지 열기: session_id=%s", session.session_id)
         content = render_workspace_page(session)
         self._send_html(content)
 
@@ -793,10 +816,17 @@ class WorkspaceRequestHandler(BaseHTTPRequestHandler):
             return
         query = parse_qs(parsed.query)
         if action == "tree":
+            LOGGER.debug("파일 트리 요청: session_id=%s, query=%s", session.session_id, query)
             self._handle_api_tree(session, query)
         elif action == "file":
+            LOGGER.debug("파일 읽기 요청: session_id=%s, query=%s", session.session_id, query)
             self._handle_api_read_file(session, query)
         elif action == "terminal":
+            LOGGER.debug(
+                "터미널 폴링 요청: session_id=%s, query=%s",
+                session.session_id,
+                query,
+            )
             self._handle_api_terminal_poll(session, query)
         else:
             self._send_json({"error": "지원하지 않는 API입니다."}, HTTPStatus.NOT_FOUND)
@@ -806,6 +836,7 @@ class WorkspaceRequestHandler(BaseHTTPRequestHandler):
         if not session:
             return
         if action == "terminal":
+            LOGGER.debug("터미널 입력 수신: session_id=%s", session.session_id)
             self._handle_api_terminal_input(session)
             return
         self._send_json({"error": "지원하지 않는 API입니다."}, HTTPStatus.NOT_FOUND)
@@ -815,6 +846,7 @@ class WorkspaceRequestHandler(BaseHTTPRequestHandler):
         if not session:
             return
         if action == "file":
+            LOGGER.debug("파일 저장 요청: session_id=%s", session.session_id)
             self._handle_api_write_file(session)
             return
         self._send_json({"error": "지원하지 않는 API입니다."}, HTTPStatus.NOT_FOUND)
@@ -994,18 +1026,27 @@ class WorkspaceRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
 
+def configure_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+
 def run_server(host: str = HOST, port: int = PORT) -> None:
     server = ThreadingHTTPServer((host, port), WorkspaceRequestHandler)
-    print(f"서버가 시작되었습니다: http://{host}:{port}")
+    LOGGER.info("서버가 시작되었습니다: http://%s:%s", host, port)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n서버를 종료합니다.")
+        LOGGER.info("서버 종료 요청을 받았습니다. 종료 절차를 진행합니다.")
     finally:
         server.server_close()
+        LOGGER.info("서버 리소스를 정리했습니다.")
 
 
 def main() -> None:
+    configure_logging()
     run_server()
 
 
