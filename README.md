@@ -62,9 +62,12 @@ Podman을 사용할 때는 이미지 짧은 이름이 차단되지 않도록 태
 
 ```bash
 podman build -t localhost/android-dev-portal -f portal/Dockerfile .
+# Podman 원격 API 소켓이 활성화되지 않았다면 다음 중 하나를 먼저 실행하세요.
+#   - systemd(루트리스): systemctl --user enable --now podman.socket
+#   - 비 systemd 환경:   podman system service --time=0 &
 CONTAINER_CLI=podman podman run --rm -it \
   -e PORTAL_ACCESS_HOST=127.0.0.1 \
-  -v /run/user/$(id -u)/podman/podman.sock:/var/run/docker.sock \
+  -v $(podman info --format '{{.Host.RemoteSocket.Path}}'):/var/run/docker.sock \
   -v $(pwd)/session:/app/session \
   -p 1539:1539 \
   --name android-dev-portal \
