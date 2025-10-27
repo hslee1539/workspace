@@ -58,7 +58,20 @@ docker run --rm -it \
   android-dev-portal
 ```
 
-Podman을 사용할 때는 위 명령에서 `docker` 대신 `podman` 을 사용하고, `CONTAINER_CLI=podman` 환경 변수를 추가하세요.
+Podman을 사용할 때는 이미지 짧은 이름이 차단되지 않도록 태그를 `localhost/` 접두사와 함께 빌드하고 실행하세요. 그렇지 않으면 `short-name "android-dev-portal" did not resolve` 오류가 발생합니다.
+
+```bash
+podman build -t localhost/android-dev-portal -f portal/Dockerfile .
+CONTAINER_CLI=podman podman run --rm -it \
+  -e PORTAL_ACCESS_HOST=127.0.0.1 \
+  -v /run/user/$(id -u)/podman/podman.sock:/var/run/docker.sock \
+  -v $(pwd)/session:/app/session \
+  -p 1539:1539 \
+  --name android-dev-portal \
+  localhost/android-dev-portal
+```
+
+> **참고**: Podman 기본 설정에서는 짧은 이미지 이름 사용을 허용하지 않으므로, 이미지를 `localhost/이미지명` 형태로 태그하거나 `registries.conf` 에 신뢰할 수 있는 레지스트리를 등록해야 합니다.
 
 ### 로컬 Python 환경에서 실행하기
 가상환경 등 로컬 Python 환경에서 실행하려면 기존과 동일하게 진행하면 됩니다.
