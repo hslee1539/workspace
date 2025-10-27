@@ -37,7 +37,10 @@ FastAPI 기반 포털 서버를 이용하면 브라우저에서 Git 저장소 UR
 Python을 로컬에 설치할 필요 없이 컨테이너로 포털을 실행할 수 있습니다.
 
 1. `android-dev-base` 이미지를 먼저 빌드합니다. (위 "사전 준비" 참고)
-2. `docker compose up --build portal` 명령으로 포털을 실행합니다. Podman을 사용한다면 `CONTAINER_CLI=podman podman compose up --build portal` 을 사용할 수 있습니다.
+2. `docker compose up --build portal` 명령으로 포털을 실행합니다. Podman을 사용할 경우 `CONTAINER_CLI=podman` 을 추가하고 다음 중 편한 방법을 사용하세요.
+   - Podman 4.4 이상: `podman compose up --build portal`
+   - Podman 4 미만: `pip install podman-compose` 후 `podman-compose up --build portal`
+   - 위 명령이 `compose provider` 오류로 실패한다면 Podman Compose 플러그인이 설치되지 않은 상태이므로, 배포판 패키지(`dnf install podman-compose`, `apt install podman-compose` 등)나 `pip install podman-compose` 로 플러그인을 준비한 뒤 다시 실행하세요.
    - Docker를 사용할 때는 호스트의 Docker 소켓(`/var/run/docker.sock`)과 현재 디렉터리의 `session/` 폴더가 컨테이너에 마운트됩니다. (권장: 실행 전에 `mkdir -p session` 으로 폴더를 만들어 두세요.)
    - Podman을 사용할 경우 `CONTAINER_CLI=podman` 환경 변수를 설정하고 Podman 소켓 경로(`/run/user/<uid>/podman/podman.sock`)를 `/var/run/docker.sock` 에 마운트하세요.
 3. 브라우저에서 `http://127.0.0.1:1539` 에 접속하면 자동으로 컨테이너가 할당되고 VS Code Web이 표시됩니다.
