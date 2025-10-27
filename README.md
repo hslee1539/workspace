@@ -37,12 +37,12 @@ FastAPI 기반 포털 서버를 이용하면 브라우저에서 Git 저장소 UR
 Python을 로컬에 설치할 필요 없이 컨테이너로 포털을 실행할 수 있습니다.
 
 1. `android-dev-base` 이미지를 먼저 빌드합니다. (위 "사전 준비" 참고)
-2. `docker compose up --build portal` 명령으로 포털을 실행합니다. Podman을 사용할 경우 `CONTAINER_CLI=podman` 을 추가하고 다음 중 편한 방법을 사용하세요.
+2. `docker compose up --build portal` 명령으로 포털을 실행합니다. Podman을 사용할 경우에도 Docker 호환 API를 통해 제어하므로, 추가 환경 변수를 지정할 필요 없이 아래 방법 중 편한 것을 사용하세요.
    - Podman 4.4 이상: `podman compose up --build portal`
    - Podman 4 미만: `pip install podman-compose` 후 `podman-compose up --build portal`
    - 위 명령이 `compose provider` 오류로 실패한다면 Podman Compose 플러그인이 설치되지 않은 상태이므로, 배포판 패키지(`dnf install podman-compose`, `apt install podman-compose` 등)나 `pip install podman-compose` 로 플러그인을 준비한 뒤 다시 실행하세요.
    - Docker를 사용할 때는 호스트의 Docker 소켓(`/var/run/docker.sock`)과 현재 디렉터리의 `session/` 폴더가 컨테이너에 마운트됩니다. (권장: 실행 전에 `mkdir -p session` 으로 폴더를 만들어 두세요.)
-   - Podman을 사용할 경우 `CONTAINER_CLI=podman` 환경 변수를 설정하고 Podman 소켓 경로(`/run/user/<uid>/podman/podman.sock`)를 `/var/run/docker.sock` 에 마운트하세요.
+   - Podman을 사용할 경우에도 Podman의 Docker 호환 API 소켓을 `/var/run/docker.sock` 에 마운트하면 컨테이너 내부 Docker CLI가 그대로 동작합니다.
 3. 브라우저에서 `http://127.0.0.1:1539` 에 접속하면 자동으로 컨테이너가 할당되고 VS Code Web이 표시됩니다.
 
 필요하다면 다음과 같이 단일 컨테이너 명령으로 실행할 수도 있습니다.
@@ -58,16 +58,24 @@ docker run --rm -it \
   android-dev-portal
 ```
 
-Podman을 사용할 때는 이미지 짧은 이름이 차단되지 않도록 태그를 `localhost/` 접두사와 함께 빌드하고 실행하세요. 그렇지 않으면 `short-name "android-dev-portal" did not resolve` 오류가 발생합니다.
+Podman을 사용할 때는 이미지 짧은 이름이 차단되지 않도록 태그를 `localhost/` 접두사와 함께 빌드하고 실행하세요. 포털 컨테이너 내부에서는 Docker CLI로 Podman의 Docker 호환 API에 연결하므로, 짧은 이름 이슈만 해결하면 동일한 명령으로 세션을 띄울 수 있습니다.
 
 ```bash
 podman build -t localhost/android-dev-portal -f portal/Dockerfile .
-# Podman 원격 API 소켓이 활성화되지 않았다면 다음 중 하나를 먼저 실행하세요.
+# Podman 원격 API 소켓이 없으면 먼저 활성화해야 합니다.
 #   - systemd(루트리스): systemctl --user enable --now podman.socket
-#   - 비 systemd 환경:   podman system service --time=0 &
-CONTAINER_CLI=podman podman run --rm -it \
+#     (필요시 `loginctl enable-linger $USER` 로 사용자 세션을 유지)
+#   - 비 systemd 환경:   podman system service --time=0 --socket-path unix://$(podman info --format '{{.Host.RemoteSocket.Path}}')
+# 소켓 파일이 존재하는지 반드시 확인하세요.
+PODMAN_SOCKET=$(podman info --format '{{.Host.RemoteSocket.Path}}')
+if [ ! -S "$PODMAN_SOCKET" ]; then
+  echo "Podman API 소켓을 찾을 수 없습니다: $PODMAN_SOCKET" >&2
+  echo "위 주석에 안내된 명령으로 소켓을 활성화한 뒤 다시 시도하세요." >&2
+  exit 1
+fi
+podman run --rm -it \
   -e PORTAL_ACCESS_HOST=127.0.0.1 \
-  -v $(podman info --format '{{.Host.RemoteSocket.Path}}'):/var/run/docker.sock \
+  -v ${PODMAN_SOCKET}:/var/run/docker.sock \
   -v $(pwd)/session:/app/session \
   -p 1539:1539 \
   --name android-dev-portal \
@@ -93,6 +101,8 @@ CONTAINER_CLI=podman podman run --rm -it \
 - `PORTAL_ACCESS_HOST`: 포털이 링크를 생성할 때 사용할 호스트명(기본값 `127.0.0.1`). 리버스 프록시 뒤에서 실행한다면 외부에서 접근 가능한 호스트명을 지정하세요.
 - `CONTAINER_CLI`: 컨테이너 실행에 사용할 CLI 명령어(`docker`, `podman` 등, 기본값 `docker`).
 - `CONTAINER_CLI_ARGS`: 컨테이너 CLI에 추가로 전달할 인자(예: `--log-level debug`).
+
+  > Podman을 백엔드로 사용하더라도 포털 컨테이너에는 Docker CLI만 포함되어 있습니다. Podman의 Docker 호환 API 소켓을 마운트하면 `CONTAINER_CLI` 를 바꾸지 않아도 그대로 동작합니다.
 
 > **참고**: 포털은 컨테이너 엔진 CLI(Docker 또는 Podman 호환)가 사용 가능한 환경에서 동작합니다. 세션을 만들기 전에 `android-dev-base` 이미지를 빌드해 두어야 하며, 새 컨테이너는 포트 `20000-20999` 구간을 순차적으로 사용합니다.
 
