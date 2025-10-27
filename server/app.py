@@ -62,7 +62,7 @@ def render_page(message: str = "", error: bool = False) -> str:
         if message
         else ""
     )
-    return f"""
+    return """
 <!DOCTYPE html>
 <html lang=\"ko\">
 <head>
