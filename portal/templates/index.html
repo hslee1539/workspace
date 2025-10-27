@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>Android Dev Container Portal</title>
+  <style>
+    body {
+      font-family: "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f4f6fb;
+      color: #1a1f36;
+    }
+    header {
+      background: linear-gradient(135deg, #2a7de1, #6639ff);
+      color: white;
+      padding: 2rem 3rem 1.5rem;
+    }
+    header h1 {
+      margin: 0 0 0.5rem;
+      font-size: 2rem;
+    }
+    main {
+      padding: 2rem 3rem 4rem;
+      max-width: 1100px;
+    }
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 12px 32px rgba(31, 33, 48, 0.08);
+      padding: 2rem;
+      margin-bottom: 2rem;
+    }
+    form {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 0.6rem;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 0.8rem 1rem;
+      border-radius: 8px;
+      border: 1px solid #d5d9eb;
+      font-size: 1rem;
+      transition: border 0.2s ease, box-shadow 0.2s ease;
+    }
+    input[type="text"]:focus {
+      border-color: #4b6fff;
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(75, 111, 255, 0.2);
+    }
+    .form-actions {
+      grid-column: span 2;
+      display: flex;
+      justify-content: flex-end;
+    }
+    button {
+      background: linear-gradient(135deg, #2a7de1, #6639ff);
+      color: white;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      padding: 0.9rem 1.8rem;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 20px rgba(42, 125, 225, 0.3);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid #e5e9f5;
+    }
+    th {
+      background: #f0f3ff;
+      font-weight: 700;
+      color: #3a4270;
+    }
+    tbody tr:hover {
+      background: #f9faff;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.2rem 0.75rem;
+      border-radius: 999px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .status.pending { background: #fff4e5; color: #d97706; }
+    .status.launching { background: #e0f2ff; color: #0369a1; }
+    .status.running { background: #e6fffa; color: #047857; }
+    .status.error { background: #fee2e2; color: #b91c1c; }
+    .status.stopped { background: #e5e7eb; color: #374151; }
+    a.session-link {
+      color: #2a7de1;
+      font-weight: 600;
+      text-decoration: none;
+    }
+    a.session-link:hover {
+      text-decoration: underline;
+    }
+    .empty {
+      text-align: center;
+      padding: 2rem;
+      color: #6b7280;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Android Dev Container Portal</h1>
+    <p>Git 저장소와 프로젝트 이름만으로 즉시 VS Code Web 환경을 실행해 보세요.</p>
+  </header>
+  <main>
+    <section class="card">
+      <h2>새 세션 생성</h2>
+      <form method="post" action="/sessions">
+        <div>
+          <label for="git_url">Git 저장소 URL</label>
+          <input id="git_url" name="git_url" type="text" placeholder="https://github.com/example/app.git" />
+        </div>
+        <div>
+          <label for="project_name">프로젝트 이름</label>
+          <input id="project_name" name="project_name" type="text" placeholder="My Android Project" />
+        </div>
+        <div class="form-actions">
+          <button type="submit">세션 시작</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>실행 중인 세션</h2>
+      {% if sessions %}
+      <table>
+        <thead>
+          <tr>
+            <th>프로젝트</th>
+            <th>상태</th>
+            <th>포트</th>
+            <th>생성 시각</th>
+            <th>액션</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for session in sessions %}
+          <tr>
+            <td><a class="session-link" href="/sessions/{{ session.id }}">{{ session.project_name }}</a></td>
+            <td><span class="status {{ session.status.value }}">{{ session.status.value }}</span></td>
+            <td>{{ session.port }}</td>
+            <td>{{ session.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            <td>
+              <a class="session-link" href="/sessions/{{ session.id }}">열기</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty">아직 생성된 세션이 없습니다. 위 양식을 통해 새 세션을 만들어보세요.</div>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>
