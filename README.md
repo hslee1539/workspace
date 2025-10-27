@@ -8,7 +8,7 @@
 
 - OpenJDK 17
 - Android SDK (platform-tools, build-tools 34/35, platforms android-35/36, NDK 29.0.13113456, CMake 3.18.1/3.22.1)
-- Node.js 18 및 npm 글로벌 패키지: `@openai/codex@0.46.0`, `opencode-ai`, `@qwen-code/qwen-code@0.0.15-nightly.8`
+- Node.js 20 및 npm 글로벌 패키지: `@openai/codex@0.46.0`, `opencode-ai`, `@qwen-code/qwen-code@0.0.15-nightly.8`
 - `OPENAI_BASE_URL=https://api.openai.com/v1`, `OPENAI_MODEL=gpt-5-mini`
 
 이미지 빌드:
