@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import base64
 import html
+import json
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import List
-from urllib.parse import parse_qs
+from typing import List, Optional
+from urllib.parse import parse_qs, unquote, urlparse
 
+from .terminal import TerminalManager
 from .workspace_manager import SessionResult, WorkspaceError, create_session
 
 HOST = "0.0.0.0"
@@ -17,18 +20,26 @@ PORT = 1539
 class SessionStore:
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._sessions: List[SessionResult] = []
+        self._order: List[str] = []
+        self._sessions: dict[str, SessionResult] = {}
 
     def add(self, session: SessionResult) -> None:
         with self._lock:
-            self._sessions.append(session)
+            self._sessions[session.session_id] = session
+            if session.session_id not in self._order:
+                self._order.append(session.session_id)
 
     def list(self) -> List[SessionResult]:
         with self._lock:
-            return list(self._sessions)
+            return [self._sessions[sid] for sid in self._order if sid in self._sessions]
+
+    def get(self, session_id: str) -> Optional[SessionResult]:
+        with self._lock:
+            return self._sessions.get(session_id)
 
 
 SESSION_STORE = SessionStore()
+TERMINAL_MANAGER = TerminalManager()
 
 
 def render_page(message: str = "", error: bool = False) -> str:
@@ -46,6 +57,7 @@ def render_page(message: str = "", error: bool = False) -> str:
               <td><code>{path}</code></td>
               <td>{repo}</td>
               <td>{command}{info}</td>
+              <td><a href=\"/sessions/{session_id}\">웹 IDE 열기</a></td>
             </tr>
             """.format(
                 name=html.escape(session.project_name, quote=True),
@@ -53,9 +65,14 @@ def render_page(message: str = "", error: bool = False) -> str:
                 repo=repo,
                 command=command,
                 info=info_text,
+                session_id=html.escape(session.session_id, quote=True),
             )
         )
-    rows_html = "\n".join(rows) if rows else "<tr><td colspan=4>아직 생성된 세션이 없습니다.</td></tr>"
+    rows_html = (
+        "\n".join(rows)
+        if rows
+        else "<tr><td colspan=5>아직 생성된 세션이 없습니다.</td></tr>"
+    )
     banner_class = "message error" if error else "message"
     banner = (
         f"<div class=\"{banner_class}\">{html.escape(message, quote=True)}</div>"
@@ -168,6 +185,7 @@ def render_page(message: str = "", error: bool = False) -> str:
         <th>경로</th>
         <th>Git 저장소</th>
         <th>에디터 실행 결과</th>
+        <th>웹 IDE</th>
       </tr>
     </thead>
     <tbody>
@@ -179,12 +197,562 @@ def render_page(message: str = "", error: bool = False) -> str:
 """.format(banner=banner, rows=rows_html)
 
 
+def render_workspace_page(session: SessionResult) -> str:
+    session_title = html.escape(session.project_name or session.session_id, quote=True)
+    session_root = html.escape(str(Path(session.session_dir)), quote=True)
+    session_id_json = json.dumps(session.session_id)
+    return f"""
+<!DOCTYPE html>
+<html lang=\"ko\">
+<head>
+  <meta charset=\"utf-8\" />
+  <title>{session_title} · 웹 IDE</title>
+  <style>
+    :root {{
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }}
+    body {{
+      margin: 0;
+      background: #f3f4f6;
+      color: #0f172a;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }}
+    header {{
+      background: #1f2937;
+      color: white;
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }}
+    header h1 {{
+      margin: 0;
+      font-size: 1.1rem;
+      font-weight: 600;
+    }}
+    header span {{
+      font-size: 0.85rem;
+      color: rgba(255, 255, 255, 0.75);
+    }}
+    header a {{
+      color: white;
+      text-decoration: none;
+      background: rgba(255, 255, 255, 0.15);
+      padding: 0.4rem 0.9rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+    }}
+    header a:hover {{
+      background: rgba(255, 255, 255, 0.25);
+    }}
+    main {{
+      flex: 1;
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      gap: 1px;
+      background: #d1d5db;
+      min-height: 0;
+    }}
+    .sidebar, .editor {{
+      background: #ffffff;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }}
+    .sidebar {{
+      border-right: 1px solid #e5e7eb;
+    }}
+    .sidebar-header {{
+      padding: 0.9rem 1rem 0.3rem;
+      border-bottom: 1px solid #f1f5f9;
+    }}
+    .sidebar-header h2 {{
+      margin: 0 0 0.6rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #1f2937;
+    }}
+    .sidebar-header button {{
+      padding: 0.3rem 0.6rem;
+      font-size: 0.75rem;
+      border-radius: 6px;
+      border: 1px solid #d1d5db;
+      background: #f9fafb;
+      cursor: pointer;
+    }}
+    .sidebar-header button:hover {{
+      background: #eef2ff;
+    }}
+    #current-path {{
+      padding: 0.3rem 1rem;
+      font-size: 0.78rem;
+      color: #6b7280;
+      border-bottom: 1px solid #f1f5f9;
+    }}
+    #file-tree {{
+      flex: 1;
+      overflow-y: auto;
+      padding: 0.6rem 0.3rem 1.2rem;
+    }}
+    .tree-item {{
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      border: none;
+      padding: 0.35rem 0.8rem;
+      font-size: 0.85rem;
+      color: #1f2937;
+      border-radius: 6px;
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      cursor: pointer;
+    }}
+    .tree-item:hover {{
+      background: #f3f4f6;
+    }}
+    .tree-item.directory::before {{
+      content: '📁';
+      font-size: 0.85rem;
+    }}
+    .tree-item.file::before {{
+      content: '📄';
+      font-size: 0.85rem;
+    }}
+    .editor-header {{
+      padding: 0.9rem 1.1rem;
+      border-bottom: 1px solid #f1f5f9;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+    }}
+    .editor-header span {{
+      font-size: 0.9rem;
+      color: #1f2937;
+    }}
+    #editor-status {{
+      font-size: 0.78rem;
+      color: #059669;
+    }}
+    .editor-actions button {{
+      padding: 0.45rem 1.1rem;
+      border-radius: 6px;
+      border: none;
+      background: #2563eb;
+      color: white;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }}
+    .editor-actions button:disabled {{
+      opacity: 0.4;
+      cursor: not-allowed;
+    }}
+    #editor-content {{
+      flex: 1;
+      width: 100%;
+      border: none;
+      resize: none;
+      font-family: 'SFMono-Regular', 'Consolas', 'Roboto Mono', monospace;
+      font-size: 0.9rem;
+      padding: 1rem;
+      outline: none;
+      background: #f9fafb;
+      color: #111827;
+    }}
+    section.terminal {{
+      background: #111827;
+      color: #e5e7eb;
+      padding: 0.8rem 1rem 1.2rem;
+      border-top: 1px solid #1f2937;
+      font-family: 'SFMono-Regular', 'Consolas', 'Roboto Mono', monospace;
+    }}
+    .terminal-header {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }}
+    .terminal-header h2 {{
+      margin: 0;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #f9fafb;
+    }}
+    #terminal-status {{
+      font-size: 0.75rem;
+      color: #a5b4fc;
+    }}
+    #terminal-output {{
+      background: #0b1120;
+      border-radius: 8px;
+      padding: 0.75rem;
+      min-height: 220px;
+      max-height: 320px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0;
+    }}
+    #terminal-capture {{
+      margin-top: 0.6rem;
+      width: 100%;
+      border-radius: 6px;
+      border: 1px solid #312e81;
+      background: #1e1b4b;
+      color: #f1f5f9;
+      padding: 0.5rem;
+      font-family: inherit;
+      font-size: 0.85rem;
+      height: 2.6rem;
+      resize: none;
+    }}
+    .terminal-hint {{
+      margin-top: 0.4rem;
+      font-size: 0.75rem;
+      color: #94a3b8;
+    }}
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>{session_title}</h1>
+      <span>{session_root}</span>
+    </div>
+    <a href=\"/\">세션 목록으로 돌아가기</a>
+  </header>
+  <main>
+    <section class=\"sidebar\">
+      <div class=\"sidebar-header\">
+        <h2>파일 탐색기</h2>
+        <button type=\"button\" id=\"refresh-tree\">새로고침</button>
+      </div>
+      <div id=\"current-path\">./</div>
+      <div id=\"file-tree\"></div>
+    </section>
+    <section class=\"editor\">
+      <div class=\"editor-header\">
+        <span id=\"open-file-name\">열린 파일이 없습니다.</span>
+        <div class=\"editor-actions\">
+          <span id=\"editor-status\"></span>
+          <button type=\"button\" id=\"save-file\" disabled>저장</button>
+        </div>
+      </div>
+      <textarea id=\"editor-content\" spellcheck=\"false\" placeholder=\"파일을 선택하면 내용이 표시됩니다.\" disabled></textarea>
+    </section>
+  </main>
+  <section class=\"terminal\">
+    <div class=\"terminal-header\">
+      <h2>터미널</h2>
+      <span id=\"terminal-status\">준비 중...</span>
+    </div>
+    <pre id=\"terminal-output\"></pre>
+    <textarea id=\"terminal-capture\" spellcheck=\"false\" aria-label=\"터미널 입력\"></textarea>
+    <p class=\"terminal-hint\">터미널 입력창을 클릭한 뒤 명령을 입력하세요. Ctrl+C, Ctrl+L 등 기본 단축키를 지원합니다.</p>
+  </section>
+  <script>
+    const SESSION_ID = {session_id_json};
+    (function() {{
+      const treeContainer = document.getElementById('file-tree');
+      const currentPathEl = document.getElementById('current-path');
+      const openFileNameEl = document.getElementById('open-file-name');
+      const editorStatusEl = document.getElementById('editor-status');
+      const saveButton = document.getElementById('save-file');
+      const editorContent = document.getElementById('editor-content');
+      const refreshTree = document.getElementById('refresh-tree');
+      const terminalOutput = document.getElementById('terminal-output');
+      const terminalCapture = document.getElementById('terminal-capture');
+      const terminalStatus = document.getElementById('terminal-status');
+
+      let currentTreePath = '';
+      let currentFilePath = '';
+      let fileDirty = false;
+      let terminalOffset = 0;
+      let terminalClosed = false;
+
+      function toBase64(bytes) {{
+        let binary = '';
+        bytes.forEach((b) => {{
+          binary += String.fromCharCode(b);
+        }});
+        return window.btoa(binary);
+      }}
+
+      async function fetchJSON(url, options = {{}}) {{
+        const response = await fetch(url, Object.assign({{
+          headers: {{ 'Content-Type': 'application/json' }},
+        }}, options));
+        if (!response.ok) {{
+          const text = await response.text();
+          throw new Error(text || '요청에 실패했습니다.');
+        }}
+        if (response.status === 204) {{
+          return null;
+        }}
+        return response.json();
+      }}
+
+      function updateEditorStatus(message, isError = false) {{
+        editorStatusEl.textContent = message;
+        editorStatusEl.style.color = isError ? '#dc2626' : '#059669';
+        if (message) {{
+          setTimeout(() => {{
+            if (!fileDirty) {{
+              editorStatusEl.textContent = '';
+            }}
+          }}, 2500);
+        }}
+      }}
+
+      function renderTree(data) {{
+        currentTreePath = data.path || '';
+        const label = currentTreePath ? './' + currentTreePath : './';
+        currentPathEl.textContent = label;
+        treeContainer.innerHTML = '';
+        const fragment = document.createDocumentFragment();
+        if (data.parent !== null) {{
+          const upItem = document.createElement('button');
+          upItem.type = 'button';
+          upItem.className = 'tree-item directory';
+          upItem.textContent = '⬆ ..';
+          upItem.addEventListener('click', () => loadTree(data.parent || ''));
+          fragment.appendChild(upItem);
+        }}
+        data.entries.forEach((entry) => {{
+          const item = document.createElement('button');
+          item.type = 'button';
+          item.className = 'tree-item ' + (entry.type === 'dir' ? 'directory' : 'file');
+          item.textContent = entry.name;
+          if (entry.type === 'dir') {{
+            item.addEventListener('click', () => loadTree(entry.path));
+          }} else {{
+            item.addEventListener('click', () => loadFile(entry.path));
+          }}
+          fragment.appendChild(item);
+        }});
+        if (!fragment.childNodes.length) {{
+          const empty = document.createElement('div');
+          empty.textContent = '비어 있는 디렉터리입니다.';
+          empty.style.padding = '0.5rem 0.8rem';
+          empty.style.fontSize = '0.8rem';
+          empty.style.color = '#9ca3af';
+          treeContainer.appendChild(empty);
+        }} else {{
+          treeContainer.appendChild(fragment);
+        }}
+      }}
+
+      async function loadTree(path = '') {{
+        try {{
+          const query = path ? '?path=' + encodeURIComponent(path) : '';
+          const data = await fetchJSON(`/api/sessions/${{SESSION_ID}}/tree${{query}}`, {{ method: 'GET' }});
+          renderTree(data);
+        }} catch (error) {{
+          console.error(error);
+        }}
+      }}
+
+      async function loadFile(path) {{
+        try {{
+          const query = '?path=' + encodeURIComponent(path);
+          const data = await fetchJSON(`/api/sessions/${{SESSION_ID}}/file${{query}}`, {{ method: 'GET' }});
+          currentFilePath = data.path;
+          openFileNameEl.textContent = data.path || '(새 파일)';
+          editorContent.value = data.content;
+          editorContent.disabled = false;
+          saveButton.disabled = false;
+          fileDirty = false;
+          updateEditorStatus('파일을 불러왔습니다.');
+        }} catch (error) {{
+          updateEditorStatus(error.message, true);
+        }}
+      }}
+
+      async function saveCurrentFile() {{
+        if (!currentFilePath) {{
+          updateEditorStatus('저장할 파일이 없습니다.', true);
+          return;
+        }}
+        try {{
+          await fetchJSON(`/api/sessions/${{SESSION_ID}}/file`, {{
+            method: 'PUT',
+            body: JSON.stringify({{ path: currentFilePath, content: editorContent.value, encoding: 'utf-8' }}),
+          }});
+          fileDirty = false;
+          updateEditorStatus('저장되었습니다.');
+        }} catch (error) {{
+          updateEditorStatus(error.message, true);
+        }}
+      }}
+
+      function appendTerminal(text) {{
+        if (text) {{
+          terminalOutput.textContent += text;
+          terminalOutput.scrollTop = terminalOutput.scrollHeight;
+        }}
+      }}
+
+      async function pollTerminal() {{
+        if (terminalClosed) {{
+          return;
+        }}
+        try {{
+          const query = '?offset=' + terminalOffset;
+          const data = await fetchJSON(`/api/sessions/${{SESSION_ID}}/terminal${{query}}`, {{ method: 'GET' }});
+          terminalOffset = data.offset;
+          appendTerminal(data.output);
+          terminalClosed = Boolean(data.closed);
+          terminalStatus.textContent = terminalClosed ? '터미널이 종료되었습니다.' : '연결됨';
+        }} catch (error) {{
+          terminalStatus.textContent = '터미널 연결 오류';
+          console.error(error);
+        }} finally {{
+          if (!terminalClosed) {{
+            setTimeout(pollTerminal, 400);
+          }}
+        }}
+      }}
+
+      async function sendTerminal(data) {{
+        if (!data) {{
+          return;
+        }}
+        const encoder = new TextEncoder();
+        const bytes = Array.from(encoder.encode(data));
+        try {{
+          await fetchJSON(`/api/sessions/${{SESSION_ID}}/terminal`, {{
+            method: 'POST',
+            body: JSON.stringify({{ data: toBase64(bytes) }}),
+          }});
+        }} catch (error) {{
+          terminalStatus.textContent = '입력 오류';
+        }}
+      }}
+
+      function translateKey(event) {{
+        if (event.ctrlKey && !event.altKey && !event.metaKey) {{
+          const key = event.key.toLowerCase();
+          if (key === 'c') {{
+            return '\u0003';
+          }}
+          if (key === 'd') {{
+            return '\u0004';
+          }}
+          if (key === 'l') {{
+            return '\u000c';
+          }}
+          if (key.length === 1) {{
+            const code = key.charCodeAt(0) - 96;
+            if (code >= 1 && code <= 26) {{
+              return String.fromCharCode(code);
+            }}
+          }}
+        }}
+        if (event.key === 'Enter') {{
+          return '\r';
+        }}
+        if (event.key === 'Backspace') {{
+          return '\u007f';
+        }}
+        if (event.key === 'Tab') {{
+          return '\t';
+        }}
+        if (event.key === 'ArrowUp') {{
+          return '\u001b[A';
+        }}
+        if (event.key === 'ArrowDown') {{
+          return '\u001b[B';
+        }}
+        if (event.key === 'ArrowRight') {{
+          return '\u001b[C';
+        }}
+        if (event.key === 'ArrowLeft') {{
+          return '\u001b[D';
+        }}
+        if (event.key.length === 1 && !event.metaKey) {{
+          return event.key;
+        }}
+        return '';
+      }}
+
+      terminalCapture.addEventListener('keydown', (event) => {{
+        const data = translateKey(event);
+        if (data) {{
+          event.preventDefault();
+          sendTerminal(data);
+        }}
+      }});
+
+      editorContent.addEventListener('input', () => {{
+        if (currentFilePath) {{
+          fileDirty = true;
+          updateEditorStatus('수정됨');
+        }}
+      }});
+
+      saveButton.addEventListener('click', saveCurrentFile);
+      refreshTree.addEventListener('click', () => loadTree(currentTreePath));
+
+      loadTree();
+      pollTerminal();
+      terminalCapture.focus();
+    }})();
+  </script>
+</body>
+</html>
+"""
+
+
 class WorkspaceRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
-        content = render_page()
-        self._send_html(content)
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path == "/":
+            content = render_page()
+            self._send_html(content)
+            return
+
+        if path.startswith("/sessions/"):
+            self._handle_session_page(parsed)
+            return
+
+        if path.startswith("/api/"):
+            self._handle_api_get(parsed)
+            return
+
+        self.send_error(HTTPStatus.NOT_FOUND.value, "요청한 경로를 찾을 수 없습니다.")
 
     def do_POST(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path == "/":
+            self._handle_create_session()
+            return
+
+        if path.startswith("/api/"):
+            self._handle_api_post(parsed)
+            return
+
+        self.send_error(HTTPStatus.NOT_FOUND.value, "지원하지 않는 경로입니다.")
+
+    def do_PUT(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/"):
+            self._handle_api_put(parsed)
+            return
+        self.send_error(HTTPStatus.METHOD_NOT_ALLOWED.value, "허용되지 않은 메서드입니다.")
+
+    def log_message(self, format: str, *args) -> None:  # noqa: A003
+        return
+
+    def _handle_create_session(self) -> None:
         content_length = int(self.headers.get("Content-Length", "0"))
         data = self.rfile.read(content_length).decode("utf-8")
         payload = parse_qs(data)
@@ -205,8 +773,217 @@ class WorkspaceRequestHandler(BaseHTTPRequestHandler):
         content = render_page(message)
         self._send_html(content, status=HTTPStatus.CREATED)
 
-    def log_message(self, format: str, *args) -> None:  # noqa: A003
-        return
+    def _handle_session_page(self, parsed) -> None:
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        if len(segments) != 2 or segments[0] != "sessions":
+            self.send_error(HTTPStatus.NOT_FOUND.value, "잘못된 세션 경로입니다.")
+            return
+        session_id = segments[1]
+        session = SESSION_STORE.get(session_id)
+        if not session:
+            self.send_error(HTTPStatus.NOT_FOUND.value, "세션을 찾을 수 없습니다.")
+            return
+        TERMINAL_MANAGER.ensure(session.session_id, session.session_dir)
+        content = render_workspace_page(session)
+        self._send_html(content)
+
+    def _handle_api_get(self, parsed) -> None:
+        session, action = self._extract_api_session(parsed.path)
+        if not session:
+            return
+        query = parse_qs(parsed.query)
+        if action == "tree":
+            self._handle_api_tree(session, query)
+        elif action == "file":
+            self._handle_api_read_file(session, query)
+        elif action == "terminal":
+            self._handle_api_terminal_poll(session, query)
+        else:
+            self._send_json({"error": "지원하지 않는 API입니다."}, HTTPStatus.NOT_FOUND)
+
+    def _handle_api_post(self, parsed) -> None:
+        session, action = self._extract_api_session(parsed.path)
+        if not session:
+            return
+        if action == "terminal":
+            self._handle_api_terminal_input(session)
+            return
+        self._send_json({"error": "지원하지 않는 API입니다."}, HTTPStatus.NOT_FOUND)
+
+    def _handle_api_put(self, parsed) -> None:
+        session, action = self._extract_api_session(parsed.path)
+        if not session:
+            return
+        if action == "file":
+            self._handle_api_write_file(session)
+            return
+        self._send_json({"error": "지원하지 않는 API입니다."}, HTTPStatus.NOT_FOUND)
+
+    def _extract_api_session(self, path: str) -> tuple[Optional[SessionResult], str]:
+        segments = [segment for segment in path.split("/") if segment]
+        if len(segments) < 3 or segments[0] != "api" or segments[1] != "sessions":
+            self._send_json({"error": "잘못된 API 경로입니다."}, HTTPStatus.NOT_FOUND)
+            return None, ""
+        session_id = segments[2]
+        session = SESSION_STORE.get(session_id)
+        if not session:
+            self._send_json({"error": "세션을 찾을 수 없습니다."}, HTTPStatus.NOT_FOUND)
+            return None, ""
+        action = segments[3] if len(segments) > 3 else ""
+        return session, action
+
+    def _handle_api_tree(self, session: SessionResult, query: dict) -> None:
+        raw_path = query.get("path", [""])[0]
+        try:
+            target = self._resolve_session_path(session, raw_path)
+        except WorkspaceError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if not target.is_dir():
+            self._send_json({"error": "디렉터리가 아닙니다."}, HTTPStatus.BAD_REQUEST)
+            return
+        entries = []
+        for child in sorted(
+            target.iterdir(),
+            key=lambda p: (p.is_file(), p.name.lower()),
+        ):
+            entry_path = self._relative_path(session, child)
+            entries.append(
+                {
+                    "name": child.name,
+                    "path": entry_path,
+                    "type": "dir" if child.is_dir() else "file",
+                }
+            )
+        parent = None
+        if target != session.session_dir:
+            parent = self._relative_path(session, target.parent)
+        payload = {
+            "path": self._relative_path(session, target),
+            "parent": parent,
+            "entries": entries,
+        }
+        self._send_json(payload)
+
+    def _handle_api_read_file(self, session: SessionResult, query: dict) -> None:
+        raw_path = query.get("path", [""])[0]
+        try:
+            target = self._resolve_session_path(session, raw_path)
+        except WorkspaceError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if target.is_dir():
+            self._send_json({"error": "디렉터리는 열 수 없습니다."}, HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            content = target.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            self._send_json({"error": f"파일을 읽을 수 없습니다: {exc}"}, HTTPStatus.BAD_REQUEST)
+            return
+        payload = {
+            "path": self._relative_path(session, target),
+            "content": content,
+            "encoding": "utf-8",
+        }
+        self._send_json(payload)
+
+    def _handle_api_write_file(self, session: SessionResult) -> None:
+        payload = self._read_json_body()
+        if payload is None:
+            return
+        raw_path = payload.get("path", "")
+        content = payload.get("content", "")
+        encoding = payload.get("encoding", "utf-8")
+        try:
+            target = self._resolve_session_path(session, raw_path)
+        except WorkspaceError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if target.is_dir():
+            self._send_json({"error": "디렉터리는 파일로 저장할 수 없습니다."}, HTTPStatus.BAD_REQUEST)
+            return
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding=encoding)
+        except OSError as exc:
+            self._send_json({"error": f"파일 저장에 실패했습니다: {exc}"}, HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json({"status": "ok"})
+
+    def _handle_api_terminal_poll(self, session: SessionResult, query: dict) -> None:
+        offset_raw = query.get("offset", ["0"])[0]
+        try:
+            offset = int(offset_raw)
+        except ValueError:
+            offset = 0
+        terminal = TERMINAL_MANAGER.ensure(session.session_id, session.session_dir)
+        new_offset, output, closed = terminal.read(offset)
+        text = output.decode("utf-8", errors="replace")
+        payload = {"offset": new_offset, "output": text, "closed": closed}
+        self._send_json(payload)
+
+    def _handle_api_terminal_input(self, session: SessionResult) -> None:
+        payload = self._read_json_body()
+        if payload is None:
+            return
+        data_b64 = payload.get("data", "")
+        try:
+            chunk = base64.b64decode(data_b64.encode("ascii"))
+        except (ValueError, UnicodeError):
+            self._send_json({"error": "잘못된 인코딩 데이터입니다."}, HTTPStatus.BAD_REQUEST)
+            return
+        terminal = TERMINAL_MANAGER.ensure(session.session_id, session.session_dir)
+        try:
+            terminal.write(chunk)
+        except RuntimeError as exc:
+            self._send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        self._send_json({"status": "ok"})
+
+    def _resolve_session_path(self, session: SessionResult, raw_path: str) -> Path:
+        base = session.session_dir.resolve()
+        raw = raw_path.strip()
+        if not raw:
+            return base
+        candidate = (base / unquote(raw)).resolve()
+        if base not in candidate.parents and candidate != base:
+            raise WorkspaceError("세션 디렉터리 밖의 경로는 접근할 수 없습니다.")
+        return candidate
+
+    def _relative_path(self, session: SessionResult, path: Path) -> str:
+        try:
+            relative = path.resolve().relative_to(session.session_dir.resolve())
+        except ValueError:
+            return ""
+        result = str(relative)
+        if result == ".":
+            return ""
+        return result
+
+    def _read_json_body(self) -> Optional[dict]:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self._send_json({"error": "잘못된 본문 길이입니다."}, HTTPStatus.BAD_REQUEST)
+            return None
+        data = self.rfile.read(length)
+        if not data:
+            self._send_json({"error": "본문이 비어 있습니다."}, HTTPStatus.BAD_REQUEST)
+            return None
+        try:
+            payload = json.loads(data.decode("utf-8"))
+        except json.JSONDecodeError:
+            self._send_json({"error": "JSON 파싱에 실패했습니다."}, HTTPStatus.BAD_REQUEST)
+            return None
+        return payload
+
+    def _send_json(self, payload: dict, status: HTTPStatus = HTTPStatus.OK) -> None:
+        encoded = json.dumps(payload).encode("utf-8")
+        self.send_response(status.value)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
 
     def _send_html(self, content: str, status: HTTPStatus = HTTPStatus.OK) -> None:
         encoded = content.encode("utf-8")

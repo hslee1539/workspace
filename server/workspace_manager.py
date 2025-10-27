@@ -20,6 +20,7 @@ class WorkspaceError(RuntimeError):
 
 @dataclass
 class SessionResult:
+    session_id: str
     session_dir: Path
     project_name: str
     repo_url: str
@@ -111,7 +112,10 @@ def create_session(repo_url: str, project_name: str) -> SessionResult:
 
     editor_command, editor_info = _try_open_with_editor(session_dir)
 
+    session_id = session_dir.name
+
     return SessionResult(
+        session_id=session_id,
         session_dir=session_dir,
         project_name=project_name or session_dir.name,
         repo_url=repo_url,
