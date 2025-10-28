@@ -726,7 +726,7 @@ def render_workspace_page(session: SessionResult) -> str:
           terminalStatus.classList.add('status-error');
           terminalStatus.textContent = '터미널 연결 오류';
           if (!terminalErrorNotified) {{
-            appendTerminal('\n[터미널 오류] ' + (error.message || '연결에 실패했습니다.') + '\n');
+            appendTerminal('\\n[터미널 오류] ' + (error.message || '연결에 실패했습니다.') + '\\n');
             terminalErrorNotified = true;
           }}
           console.error(error);
@@ -756,14 +756,9 @@ def render_workspace_page(session: SessionResult) -> str:
       function translateKey(event) {{
         if (event.ctrlKey && !event.altKey && !event.metaKey) {{
           const key = event.key.toLowerCase();
-          if (key === 'c') {{
-            return '\u0003';
-          }}
-          if (key === 'd') {{
-            return '\u0004';
-          }}
-          if (key === 'l') {{
-            return '\u000c';
+          const controlShortcuts = {{ c: 3, d: 4, l: 12 }};
+          if (Object.prototype.hasOwnProperty.call(controlShortcuts, key)) {{
+            return String.fromCharCode(controlShortcuts[key]);
           }}
           if (key.length === 1) {{
             const code = key.charCodeAt(0) - 96;
@@ -773,25 +768,22 @@ def render_workspace_page(session: SessionResult) -> str:
           }}
         }}
         if (event.key === 'Enter') {{
-          return '\r';
+          return String.fromCharCode(13);
         }}
         if (event.key === 'Backspace') {{
-          return '\u007f';
+          return String.fromCharCode(127);
         }}
         if (event.key === 'Tab') {{
-          return '\t';
+          return String.fromCharCode(9);
         }}
-        if (event.key === 'ArrowUp') {{
-          return '\u001b[A';
-        }}
-        if (event.key === 'ArrowDown') {{
-          return '\u001b[B';
-        }}
-        if (event.key === 'ArrowRight') {{
-          return '\u001b[C';
-        }}
-        if (event.key === 'ArrowLeft') {{
-          return '\u001b[D';
+        const arrowSequences = {{
+          ArrowUp: '[A',
+          ArrowDown: '[B',
+          ArrowRight: '[C',
+          ArrowLeft: '[D',
+        }};
+        if (Object.prototype.hasOwnProperty.call(arrowSequences, event.key)) {{
+          return String.fromCharCode(27) + arrowSequences[event.key];
         }}
         if (event.key.length === 1 && !event.metaKey) {{
           return event.key;
