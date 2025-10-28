@@ -58,3 +58,57 @@ Linux에서 `host.docker.internal` 이 동작하지 않는다면 Docker를 최�
 
 ## TODO
 - [ ] JetBrains Fleet Dev Container 자동화 스크립트 및 가이드 공개 (준비 중)
+
+## 웹 기반 세션 관리 서버
+스크립트를 직접 실행하지 않고도 세션을 만들 수 있도록 간단한 웹 서버를 제공합니다. 서버는 `127.0.0.1:1539`에서 Git 저장소 주소와 프로젝트 이름을 입력받아 기존 스크립트와 동일한 방식으로 세션을 생성하고, 필요할 때 목록에서 VS Code / VS Code Insiders / code-server 등을 선택해 실행할 수 있습니다.
+
+### Python으로 직접 실행
+```bash
+python -m server.app
+```
+
+실행 후 브라우저에서 `http://127.0.0.1:1539` 에 접속하면 됩니다.
+
+1. 메인 화면에서 Git 저장소 주소와 프로젝트 이름을 입력해 세션을 생성합니다.
+2. 로컬 에디터를 사용하고 싶다면 세션 목록의 **에디터 실행 / 상태** 열에서 원하는 항목을 선택한 뒤 **실행**을 누르세요. (선택하지 않으면 아무 에디터도 자동으로 실행되지 않습니다.)
+3. 생성된 세션 목록의 **웹 IDE 열기** 링크를 누르면 브라우저 기반 코드 편집기와 터미널이 열립니다.
+4. 좌측 탐색기에서 파일을 선택해 수정·저장할 수 있으며, 하단 터미널 영역에서는 일반 쉘 명령을 실시간으로 실행할 수 있습니다.
+
+> ℹ️ 터미널 입력창에 포커스를 두고 키를 입력하면 바로 세션 디렉터리에서 쉘이 실행됩니다. `Ctrl+C`, `Ctrl+D`, 방향키 등 기본 키 조합을 지원합니다. 파일 탐색기와 터미널은 로딩/오류 상태를 표시하므로 문제가 있을 경우 화면 메시지를 확인하세요.
+
+#### 웹 IDE 터미널 실행 환경
+
+- 서버는 기본적으로 Docker → Podman 순으로 컨테이너 런타임을 탐지한 뒤, 사용할 수 있는 런타임이 있다면 `mcr.microsoft.com/devcontainers/base:ubuntu` 이미지를 이용해 새 컨테이너를 띄우고 `/workspace`에 세션 폴더를 마운트합니다.
+- 컨테이너가 준비되면 터미널 상단에 `Docker 컨테이너 · 이미지 ...` 와 같이 실행 환경이 표시됩니다. 이미지가 없으면 최초 1회 자동으로 내려받기 때문에 약간의 대기 시간이 발생할 수 있습니다.
+- 컨테이너 런타임을 찾을 수 없거나 실패하면 시스템 기본 쉘(예: `/bin/bash`)로 자동 폴백됩니다. 이 경우에도 웹 IDE 상단과 세션 목록에서 "호스트 셸" 이라는 문구를 확인할 수 있습니다.
+
+필요 시 다음 환경 변수로 동작을 제어할 수 있습니다.
+
+| 변수 | 설명 |
+| --- | --- |
+| `WORKSPACE_CONTAINER_RUNTIME` | 사용할 런타임을 콤마로 구분하여 지정합니다. 예: `docker`, `podman`, `podman,docker` |
+| `WORKSPACE_CONTAINER_IMAGE` | 기본 이미지(기본값: `mcr.microsoft.com/devcontainers/base:ubuntu`). 세션 디렉터리는 항상 `/workspace` 아래에 마운트됩니다. |
+| `WORKSPACE_CONTAINER_ARGS` | `docker run`/`podman run` 호출에 추가할 인자. 예: `--network host` |
+| `WORKSPACE_CONTAINER_SHELL` | 컨테이너에서 실행할 셸 명령(기본값: `/bin/bash`). |
+| `WORKSPACE_CONTAINER_WORKDIR` | 컨테이너 내부 작업 디렉터리(기본값: `/workspace`). |
+| `WORKSPACE_FORCE_HOST_TERMINAL` | 설정하면 컨테이너를 사용하지 않고 항상 호스트 쉘을 실행합니다. 값은 아무 문자열이나 가능합니다. |
+
+### Docker로 실행
+```bash
+docker build -f docker/server.Dockerfile -t android-dev-server .
+docker run --rm -it \
+  -p 1539:1539 \
+  -v "$(pwd)/session:/workspace/session" \
+  android-dev-server
+```
+
+### Podman으로 실행
+```bash
+podman build -f docker/server.Dockerfile -t android-dev-server .
+podman run --rm -it \
+  -p 1539:1539 \
+  -v "$(pwd)/session:/workspace/session" \
+  android-dev-server
+```
+
+컨테이너를 사용할 때도 호스트의 `session/` 폴더를 마운트하면 Dev Container와 동일한 구조로 세션을 재사용할 수 있습니다.
