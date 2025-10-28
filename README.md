@@ -76,6 +76,23 @@ python -m server.app
 
 > ℹ️ 터미널 입력창에 포커스를 두고 키를 입력하면 바로 세션 디렉터리에서 쉘이 실행됩니다. `Ctrl+C`, `Ctrl+D`, 방향키 등 기본 키 조합을 지원합니다. 파일 탐색기와 터미널은 로딩/오류 상태를 표시하므로 문제가 있을 경우 화면 메시지를 확인하세요.
 
+#### 웹 IDE 터미널 실행 환경
+
+- 서버는 기본적으로 Docker → Podman 순으로 컨테이너 런타임을 탐지한 뒤, 사용할 수 있는 런타임이 있다면 `mcr.microsoft.com/devcontainers/base:ubuntu` 이미지를 이용해 새 컨테이너를 띄우고 `/workspace`에 세션 폴더를 마운트합니다.
+- 컨테이너가 준비되면 터미널 상단에 `Docker 컨테이너 · 이미지 ...` 와 같이 실행 환경이 표시됩니다. 이미지가 없으면 최초 1회 자동으로 내려받기 때문에 약간의 대기 시간이 발생할 수 있습니다.
+- 컨테이너 런타임을 찾을 수 없거나 실패하면 시스템 기본 쉘(예: `/bin/bash`)로 자동 폴백됩니다. 이 경우에도 웹 IDE 상단과 세션 목록에서 "호스트 셸" 이라는 문구를 확인할 수 있습니다.
+
+필요 시 다음 환경 변수로 동작을 제어할 수 있습니다.
+
+| 변수 | 설명 |
+| --- | --- |
+| `WORKSPACE_CONTAINER_RUNTIME` | 사용할 런타임을 콤마로 구분하여 지정합니다. 예: `docker`, `podman`, `podman,docker` |
+| `WORKSPACE_CONTAINER_IMAGE` | 기본 이미지(기본값: `mcr.microsoft.com/devcontainers/base:ubuntu`). 세션 디렉터리는 항상 `/workspace` 아래에 마운트됩니다. |
+| `WORKSPACE_CONTAINER_ARGS` | `docker run`/`podman run` 호출에 추가할 인자. 예: `--network host` |
+| `WORKSPACE_CONTAINER_SHELL` | 컨테이너에서 실행할 셸 명령(기본값: `/bin/bash`). |
+| `WORKSPACE_CONTAINER_WORKDIR` | 컨테이너 내부 작업 디렉터리(기본값: `/workspace`). |
+| `WORKSPACE_FORCE_HOST_TERMINAL` | 설정하면 컨테이너를 사용하지 않고 항상 호스트 쉘을 실행합니다. 값은 아무 문자열이나 가능합니다. |
+
 ### Docker로 실행
 ```bash
 docker build -f docker/server.Dockerfile -t android-dev-server .

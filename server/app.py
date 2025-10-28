@@ -56,6 +56,10 @@ TERMINAL_MANAGER = TerminalManager()
 def render_page(message: str = "", error: bool = False) -> str:
     sessions = SESSION_STORE.list()
     detected_options = detect_editor_options()
+    terminal_backend_hint = html.escape(
+        TERMINAL_MANAGER.describe_default_backend(),
+        quote=True,
+    )
     rows = []
     for session in sessions:
         session.available_editors = list(detected_options)
@@ -99,7 +103,16 @@ def render_page(message: str = "", error: bool = False) -> str:
             last_message_html = f"마지막 실행: {command_text}{info_html}"
         else:
             last_message_html = html.escape("아직 에디터를 실행하지 않았습니다.", quote=True)
-        editor_status = f"<div class=\"info\">{last_message_html}</div>"
+        terminal_info_text = session.terminal_backend or TERMINAL_MANAGER.describe_default_backend()
+        editor_status = [f"<div class=\"info\">{last_message_html}"]
+        if terminal_info_text:
+            editor_status.append(
+                "<br /><span class=\"info-terminal\">터미널: {value}</span>".format(
+                    value=html.escape(terminal_info_text, quote=True)
+                )
+            )
+        editor_status.append("</div>")
+        editor_status_html = "".join(editor_status)
         rows.append(
             """
             <tr>
@@ -114,7 +127,7 @@ def render_page(message: str = "", error: bool = False) -> str:
                 path=html.escape(str(Path(session.session_dir)), quote=True),
                 repo=repo,
                 controls=editor_controls,
-                status=editor_status,
+                status=editor_status_html,
                 session_id=session_id_safe,
             )
         )
@@ -243,11 +256,23 @@ def render_page(message: str = "", error: bool = False) -> str:
       font-size: 0.85rem;
       color: #52606d;
     }}
+    .info-terminal {{
+      display: inline-block;
+      margin-top: 0.25rem;
+      font-size: 0.8rem;
+      color: #334155;
+    }}
+    .terminal-summary {{
+      margin-top: 0.75rem;
+      font-size: 0.95rem;
+      color: #52606d;
+    }}
   </style>
 </head>
 <body>
   <h1>Android Dev Container Session 생성</h1>
   <p>Git 저장소와 프로젝트 이름을 입력하면 세션이 준비됩니다. 필요하다면 아래 목록에서 원하는 에디터를 선택해 실행할 수 있습니다.</p>
+  <p class=\"terminal-summary\">웹 IDE 터미널은 기본적으로 {terminal_backend_hint} 환경에서 실행됩니다.</p>
   <form class=\"session-form\" method=\"post\" accept-charset=\"utf-8\">
     <label for=\"repo_url\">Git 주소</label>
     <input type=\"text\" id=\"repo_url\" name=\"repo_url\" placeholder=\"https://github.com/user/repo.git\" />
@@ -273,13 +298,17 @@ def render_page(message: str = "", error: bool = False) -> str:
   </table>
 </body>
 </html>
-""".format(banner=banner, rows=rows_html)
+""".format(banner=banner, rows=rows_html, terminal_backend_hint=terminal_backend_hint)
 
 
 def render_workspace_page(session: SessionResult) -> str:
     session_title = html.escape(session.project_name or session.session_id, quote=True)
     session_root = html.escape(str(Path(session.session_dir)), quote=True)
     session_id_json = json.dumps(session.session_id)
+    terminal_backend = html.escape(
+        session.terminal_backend or "호스트 셸 · 시스템 기본 쉘",
+        quote=True,
+    )
     return f"""
 <!DOCTYPE html>
 <html lang=\"ko\">
@@ -469,6 +498,11 @@ def render_workspace_page(session: SessionResult) -> str:
       align-items: center;
       margin-bottom: 0.5rem;
     }}
+    .terminal-meta {{
+      margin: 0 0 0.5rem;
+      font-size: 0.75rem;
+      color: #a5b4fc;
+    }}
     .terminal-header h2 {{
       margin: 0;
       font-size: 0.95rem;
@@ -546,6 +580,7 @@ def render_workspace_page(session: SessionResult) -> str:
       <h2>터미널</h2>
       <span id=\"terminal-status\">연결 시도 중...</span>
     </div>
+    <p class=\"terminal-meta\">실행 환경: {terminal_backend}</p>
     <pre id=\"terminal-output\"></pre>
     <textarea id=\"terminal-capture\" spellcheck=\"false\" aria-label=\"터미널 입력\"></textarea>
     <p class=\"terminal-hint\">터미널 입력창을 클릭한 뒤 명령을 입력하세요. Ctrl+C, Ctrl+L 등 기본 단축키를 지원합니다.</p>
@@ -976,8 +1011,13 @@ class WorkspaceRequestHandler(BaseHTTPRequestHandler):
             self.send_error(HTTPStatus.NOT_FOUND.value, "세션을 찾을 수 없습니다.")
             return
         session.available_editors = list(detect_editor_options())
-        TERMINAL_MANAGER.ensure(session.session_id, session.session_dir)
-        LOGGER.info("세션 페이지 열기: session_id=%s", session.session_id)
+        terminal = TERMINAL_MANAGER.ensure(session.session_id, session.session_dir)
+        session.terminal_backend = terminal.backend_description
+        LOGGER.info(
+            "세션 페이지 열기: session_id=%s, terminal_backend=%s",
+            session.session_id,
+            session.terminal_backend,
+        )
         content = render_workspace_page(session)
         self._send_html(content)
 

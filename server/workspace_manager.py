@@ -38,6 +38,7 @@ class SessionResult:
     editor_command: Optional[str]
     editor_info: Optional[str] = None
     available_editors: List[EditorOption] = field(default_factory=list)
+    terminal_backend: Optional[str] = None
 
 
 def slugify(value: str) -> str:
@@ -175,4 +176,5 @@ def create_session(repo_url: str, project_name: str) -> SessionResult:
         editor_command=editor_command,
         editor_info=editor_info,
         available_editors=available_editors,
+        terminal_backend=None,
     )
