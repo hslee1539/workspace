@@ -607,6 +607,7 @@ def render_workspace_page(session: SessionResult) -> str:
       let terminalClosed = false;
       let terminalReady = false;
       let terminalErrorNotified = false;
+      const TERMINAL_POLL_INTERVAL = 120;
 
       function toBase64(bytes) {{
         let binary = '';
@@ -767,7 +768,7 @@ def render_workspace_page(session: SessionResult) -> str:
           console.error(error);
         }} finally {{
           if (!terminalClosed) {{
-            setTimeout(pollTerminal, 400);
+            setTimeout(pollTerminal, TERMINAL_POLL_INTERVAL);
           }}
         }}
       }}
@@ -789,6 +790,9 @@ def render_workspace_page(session: SessionResult) -> str:
       }}
 
       function translateKey(event) {{
+        if (event.isComposing) {{
+          return '';
+        }}
         if (event.ctrlKey && !event.altKey && !event.metaKey) {{
           const key = event.key.toLowerCase();
           const controlShortcuts = {{ c: 3, d: 4, l: 12 }};
@@ -820,9 +824,6 @@ def render_workspace_page(session: SessionResult) -> str:
         if (Object.prototype.hasOwnProperty.call(arrowSequences, event.key)) {{
           return String.fromCharCode(27) + arrowSequences[event.key];
         }}
-        if (event.key.length === 1 && !event.metaKey) {{
-          return event.key;
-        }}
         return '';
       }}
 
@@ -832,6 +833,18 @@ def render_workspace_page(session: SessionResult) -> str:
           event.preventDefault();
           sendTerminal(data);
         }}
+      }});
+
+      terminalCapture.addEventListener('input', (event) => {{
+        if (event.isComposing) {{
+          return;
+        }}
+        const value = terminalCapture.value;
+        if (!value) {{
+          return;
+        }}
+        sendTerminal(value);
+        terminalCapture.value = '';
       }});
 
       editorContent.addEventListener('input', () => {{
