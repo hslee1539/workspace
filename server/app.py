@@ -607,6 +607,7 @@ def render_workspace_page(session: SessionResult) -> str:
       let terminalClosed = false;
       let terminalReady = false;
       let terminalErrorNotified = false;
+      let terminalBuffer = '';
       const TERMINAL_POLL_INTERVAL = 120;
 
       function toBase64(bytes) {{
@@ -732,11 +733,140 @@ def render_workspace_page(session: SessionResult) -> str:
         }}
       }}
 
-      function appendTerminal(text) {{
-        if (text) {{
-          terminalOutput.textContent += text;
-          terminalOutput.scrollTop = terminalOutput.scrollHeight;
+      function removeLastCodePoint(buffer) {{
+        if (!buffer) {{
+          return buffer;
         }}
+        const lastIndex = buffer.length - 1;
+        const lastCode = buffer.charCodeAt(lastIndex);
+        if (lastCode >= 0xdc00 && lastCode <= 0xdfff && lastIndex > 0) {{
+          const leadCode = buffer.charCodeAt(lastIndex - 1);
+          if (leadCode >= 0xd800 && leadCode <= 0xdbff) {{
+            return buffer.slice(0, lastIndex - 1);
+          }}
+        }}
+        return buffer.slice(0, lastIndex);
+      }}
+
+      function clearLineFromCursor() {{
+        const lastNewline = terminalBuffer.lastIndexOf('\n');
+        if (lastNewline === -1) {{
+          terminalBuffer = '';
+        }} else {{
+          terminalBuffer = terminalBuffer.slice(0, lastNewline + 1);
+        }}
+      }}
+
+      function clearScreen(mode) {{
+        if (mode === '2' || mode === '3') {{
+          terminalBuffer = '';
+          return;
+        }}
+        if (mode === '0' || mode === '') {{
+          return;
+        }}
+        if (mode === '1') {{
+          const lastNewline = terminalBuffer.lastIndexOf('\n');
+          if (lastNewline !== -1) {{
+            terminalBuffer = terminalBuffer.slice(lastNewline + 1);
+          }}
+        }}
+      }}
+
+      function handleCsiSequence(params, command) {{
+        switch (command) {{
+          case 'K':
+            if (params === '' || params === '0') {{
+              clearLineFromCursor();
+            }} else if (params === '1') {{
+              const lastNewline = terminalBuffer.lastIndexOf('\n');
+              if (lastNewline !== -1) {{
+                terminalBuffer = terminalBuffer.slice(0, lastNewline + 1);
+              }}
+            }} else if (params === '2') {{
+              clearLineFromCursor();
+            }}
+            break;
+          case 'J':
+            clearScreen(params);
+            break;
+          case 'm':
+            break;
+          default:
+            break;
+        }}
+      }}
+
+      function handleEscapeSequence(text, index) {{
+        const next = text[index + 1];
+        if (!next) {{
+          return index + 1;
+        }}
+        if (next === '[') {{
+          let cursor = index + 2;
+          let params = '';
+          while (cursor < text.length) {{
+            const ch = text[cursor];
+            if (ch >= '@' && ch <= '~') {{
+              handleCsiSequence(params, ch);
+              return cursor;
+            }}
+            params += ch;
+            cursor += 1;
+          }}
+          return cursor;
+        }}
+        if (next === ']') {{
+          let cursor = index + 2;
+          while (cursor < text.length) {{
+            const ch = text[cursor];
+            if (ch === '\u0007') {{
+              return cursor;
+            }}
+            if (ch === '\u001b' && text[cursor + 1] === '\\') {{
+              return cursor + 1;
+            }}
+            cursor += 1;
+          }}
+          return cursor;
+        }}
+        return index + 1;
+      }}
+
+      function appendTerminal(text) {{
+        if (!text) {{
+          return;
+        }}
+        for (let i = 0; i < text.length; i += 1) {{
+          const ch = text[i];
+          if (ch === '\\r') {{
+            const lastNewline = terminalBuffer.lastIndexOf('\n');
+            if (lastNewline === -1) {{
+              terminalBuffer = '';
+            }} else {{
+              terminalBuffer = terminalBuffer.slice(0, lastNewline + 1);
+            }}
+            continue;
+          }}
+          if (ch === '\\n') {{
+            terminalBuffer += '\\n';
+            continue;
+          }}
+          if (ch === '\\u0008' || ch === '\\u007f') {{
+            terminalBuffer = removeLastCodePoint(terminalBuffer);
+            continue;
+          }}
+          if (ch === '\\u0007') {{
+            continue;
+          }}
+          if (ch === '\\u001b') {{
+            i = handleEscapeSequence(text, i);
+            continue;
+          }}
+          terminalBuffer += ch;
+        }}
+        terminalOutput.textContent = terminalBuffer;
+        terminalOutput.scrollTop = terminalOutput.scrollHeight;
       }}
 
       async function pollTerminal() {{
