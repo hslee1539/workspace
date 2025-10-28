@@ -12,7 +12,13 @@ from typing import List, Optional
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .terminal import TerminalManager
-from .workspace_manager import SessionResult, WorkspaceError, create_session
+from .workspace_manager import (
+    SessionResult,
+    WorkspaceError,
+    create_session,
+    detect_editor_options,
+    launch_editor,
+)
 
 
 LOGGER = logging.getLogger("server.app")
@@ -49,28 +55,67 @@ TERMINAL_MANAGER = TerminalManager()
 
 def render_page(message: str = "", error: bool = False) -> str:
     sessions = SESSION_STORE.list()
+    detected_options = detect_editor_options()
     rows = []
     for session in sessions:
+        session.available_editors = list(detected_options)
         repo = html.escape(session.repo_url or "-", quote=True)
-        command = html.escape(session.editor_command or "미실행", quote=True)
-        info = html.escape(session.editor_info or "", quote=True)
-        info_text = f"<div class=\"info\">{info}</div>" if info else ""
+        session_id_safe = html.escape(session.session_id, quote=True)
+        action_path = html.escape(f"/sessions/{session.session_id}/launch", quote=True)
+        select_id = html.escape(f"editor-{session.session_id}", quote=True)
+        if session.available_editors:
+            option_tags = ["<option value=\"\">에디터 선택</option>"]
+            for option in session.available_editors:
+                label_text = option.label
+                if option.info:
+                    label_text = f"{label_text} · {option.info}"
+                option_tags.append(
+                    "<option value=\"{value}\">{label}</option>".format(
+                        value=html.escape(option.identifier, quote=True),
+                        label=html.escape(label_text, quote=True),
+                    )
+                )
+            options_html = "".join(option_tags)
+            editor_controls = (
+                f"<form method=\"post\" action=\"{action_path}\" class=\"editor-form\">"
+                f"<select id=\"{select_id}\" name=\"editor_id\" aria-label=\"에디터 선택\">{options_html}</select>"
+                "<button type=\"submit\">실행</button>"
+                "</form>"
+            )
+        else:
+            editor_controls = "<div class=\"editor-empty\">사용 가능한 에디터가 없습니다.</div>"
+        if session.editor_command:
+            command_text = html.escape(session.editor_command, quote=True)
+            info_html = ""
+            if session.editor_info:
+                info_value = session.editor_info
+                if info_value.startswith("http://") or info_value.startswith("https://"):
+                    info_escaped = html.escape(info_value, quote=True)
+                    info_html = (
+                        f" · <a href=\"{info_escaped}\" target=\"_blank\" rel=\"noopener\">{info_escaped}</a>"
+                    )
+                else:
+                    info_html = f" · {html.escape(info_value, quote=True)}"
+            last_message_html = f"마지막 실행: {command_text}{info_html}"
+        else:
+            last_message_html = html.escape("아직 에디터를 실행하지 않았습니다.", quote=True)
+        editor_status = f"<div class=\"info\">{last_message_html}</div>"
         rows.append(
             """
             <tr>
               <td>{name}</td>
               <td><code>{path}</code></td>
               <td>{repo}</td>
-              <td>{command}{info}</td>
+              <td>{controls}{status}</td>
               <td><a href=\"/sessions/{session_id}\">웹 IDE 열기</a></td>
             </tr>
             """.format(
                 name=html.escape(session.project_name, quote=True),
                 path=html.escape(str(Path(session.session_dir)), quote=True),
                 repo=repo,
-                command=command,
-                info=info_text,
-                session_id=html.escape(session.session_id, quote=True),
+                controls=editor_controls,
+                status=editor_status,
+                session_id=session_id_safe,
             )
         )
     rows_html = (
@@ -101,7 +146,7 @@ def render_page(message: str = "", error: bool = False) -> str:
       font-size: 1.8rem;
       margin-bottom: 1rem;
     }}
-    form {{
+    .session-form {{
       display: grid;
       grid-template-columns: 150px 1fr;
       gap: 0.75rem 1rem;
@@ -110,17 +155,17 @@ def render_page(message: str = "", error: bool = False) -> str:
       padding: 1.5rem;
       border-radius: 12px;
     }}
-    label {{
+    .session-form label {{
       font-weight: 600;
       align-self: center;
     }}
-    input[type="text"] {{
+    .session-form input[type="text"] {{
       padding: 0.6rem;
       border-radius: 8px;
       border: 1px solid #cbd2d9;
       font-size: 1rem;
     }}
-    button {{
+    .session-form button {{
       grid-column: 1 / span 2;
       padding: 0.75rem 1.5rem;
       background: #2563eb;
@@ -130,7 +175,7 @@ def render_page(message: str = "", error: bool = False) -> str:
       font-size: 1rem;
       cursor: pointer;
     }}
-    button:hover {{
+    .session-form button:hover {{
       background: #1d4ed8;
     }}
     table {{
@@ -153,6 +198,35 @@ def render_page(message: str = "", error: bool = False) -> str:
       border-radius: 4px;
       font-size: 0.9rem;
     }}
+    .editor-form {{
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.4rem;
+    }}
+    .editor-form select {{
+      padding: 0.35rem 0.6rem;
+      border: 1px solid #cbd2d9;
+      border-radius: 6px;
+      font-size: 0.85rem;
+    }}
+    .editor-form button {{
+      padding: 0.4rem 0.9rem;
+      border-radius: 6px;
+      border: none;
+      background: #2563eb;
+      color: white;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }}
+    .editor-form button:hover {{
+      background: #1d4ed8;
+    }}
+    .editor-empty {{
+      font-size: 0.85rem;
+      color: #9aa5b1;
+      margin-bottom: 0.3rem;
+    }}
     .message {{
       margin-top: 1rem;
       padding: 0.9rem 1rem;
@@ -173,8 +247,8 @@ def render_page(message: str = "", error: bool = False) -> str:
 </head>
 <body>
   <h1>Android Dev Container Session 생성</h1>
-  <p>Git 저장소와 프로젝트 이름을 입력하면 세션이 준비되고, 사용 가능한 에디터가 자동으로 열립니다.</p>
-  <form method=\"post\" accept-charset=\"utf-8\">
+  <p>Git 저장소와 프로젝트 이름을 입력하면 세션이 준비됩니다. 필요하다면 아래 목록에서 원하는 에디터를 선택해 실행할 수 있습니다.</p>
+  <form class=\"session-form\" method=\"post\" accept-charset=\"utf-8\">
     <label for=\"repo_url\">Git 주소</label>
     <input type=\"text\" id=\"repo_url\" name=\"repo_url\" placeholder=\"https://github.com/user/repo.git\" />
     <label for=\"project_name\">프로젝트 이름</label>
@@ -189,7 +263,7 @@ def render_page(message: str = "", error: bool = False) -> str:
         <th>프로젝트</th>
         <th>경로</th>
         <th>Git 저장소</th>
-        <th>에디터 실행 결과</th>
+        <th>에디터 실행 / 상태</th>
         <th>웹 IDE</th>
       </tr>
     </thead>
@@ -303,6 +377,19 @@ def render_workspace_page(session: SessionResult) -> str:
       overflow-y: auto;
       padding: 0.6rem 0.3rem 1.2rem;
     }}
+    .tree-loading,
+    .tree-error {{
+      padding: 0.5rem 0.8rem;
+      font-size: 0.8rem;
+    }}
+    .tree-loading {{
+      color: #6b7280;
+    }}
+    .tree-error {{
+      color: #b91c1c;
+      background: #fef2f2;
+      border-radius: 6px;
+    }}
     .tree-item {{
       width: 100%;
       text-align: left;
@@ -392,6 +479,9 @@ def render_workspace_page(session: SessionResult) -> str:
       font-size: 0.75rem;
       color: #a5b4fc;
     }}
+    #terminal-status.status-error {{
+      color: #fca5a5;
+    }}
     #terminal-output {{
       background: #0b1120;
       border-radius: 8px;
@@ -454,7 +544,7 @@ def render_workspace_page(session: SessionResult) -> str:
   <section class=\"terminal\">
     <div class=\"terminal-header\">
       <h2>터미널</h2>
-      <span id=\"terminal-status\">준비 중...</span>
+      <span id=\"terminal-status\">연결 시도 중...</span>
     </div>
     <pre id=\"terminal-output\"></pre>
     <textarea id=\"terminal-capture\" spellcheck=\"false\" aria-label=\"터미널 입력\"></textarea>
@@ -473,12 +563,15 @@ def render_workspace_page(session: SessionResult) -> str:
       const terminalOutput = document.getElementById('terminal-output');
       const terminalCapture = document.getElementById('terminal-capture');
       const terminalStatus = document.getElementById('terminal-status');
+      terminalStatus.textContent = '연결 시도 중...';
 
       let currentTreePath = '';
       let currentFilePath = '';
       let fileDirty = false;
       let terminalOffset = 0;
       let terminalClosed = false;
+      let terminalReady = false;
+      let terminalErrorNotified = false;
 
       function toBase64(bytes) {{
         let binary = '';
@@ -500,6 +593,12 @@ def render_workspace_page(session: SessionResult) -> str:
           return null;
         }}
         return response.json();
+      }}
+
+      function escapeHtml(value) {{
+        const div = document.createElement('div');
+        div.textContent = value;
+        return div.innerHTML;
       }}
 
       function updateEditorStatus(message, isError = false) {{
@@ -553,11 +652,13 @@ def render_workspace_page(session: SessionResult) -> str:
       }}
 
       async function loadTree(path = '') {{
+        treeContainer.innerHTML = '<div class="tree-loading">파일 목록을 불러오는 중...</div>';
         try {{
           const query = path ? '?path=' + encodeURIComponent(path) : '';
           const data = await fetchJSON(`/api/sessions/${{SESSION_ID}}/tree${{query}}`, {{ method: 'GET' }});
           renderTree(data);
         }} catch (error) {{
+          treeContainer.innerHTML = '<div class="tree-error">파일 목록을 불러오지 못했습니다: ' + escapeHtml(error.message || '알 수 없는 오류') + '</div>';
           console.error(error);
         }}
       }}
@@ -606,15 +707,28 @@ def render_workspace_page(session: SessionResult) -> str:
         if (terminalClosed) {{
           return;
         }}
+        if (!terminalReady) {{
+          terminalStatus.classList.remove('status-error');
+          terminalStatus.textContent = '연결 시도 중...';
+        }}
         try {{
           const query = '?offset=' + terminalOffset;
           const data = await fetchJSON(`/api/sessions/${{SESSION_ID}}/terminal${{query}}`, {{ method: 'GET' }});
           terminalOffset = data.offset;
           appendTerminal(data.output);
           terminalClosed = Boolean(data.closed);
+          terminalReady = true;
+          terminalErrorNotified = false;
+          terminalStatus.classList.remove('status-error');
           terminalStatus.textContent = terminalClosed ? '터미널이 종료되었습니다.' : '연결됨';
         }} catch (error) {{
+          terminalReady = false;
+          terminalStatus.classList.add('status-error');
           terminalStatus.textContent = '터미널 연결 오류';
+          if (!terminalErrorNotified) {{
+            appendTerminal('\n[터미널 오류] ' + (error.message || '연결에 실패했습니다.') + '\n');
+            terminalErrorNotified = true;
+          }}
           console.error(error);
         }} finally {{
           if (!terminalClosed) {{
@@ -741,6 +855,10 @@ class WorkspaceRequestHandler(BaseHTTPRequestHandler):
             self._handle_create_session()
             return
 
+        if path.startswith("/sessions/"):
+            self._handle_launch_editor(parsed)
+            return
+
         if path.startswith("/api/"):
             self._handle_api_post(parsed)
             return
@@ -784,15 +902,75 @@ class WorkspaceRequestHandler(BaseHTTPRequestHandler):
         message = (
             f"세션이 준비되었습니다: {result.project_name}. 경로: {result.session_dir}"
         )
-        if result.editor_command:
-            message += f" · 실행된 명령: {result.editor_command}"
         LOGGER.info(
-            "세션 생성 완료: session_id=%s, editor=%s",
+            "세션 생성 완료: session_id=%s, available_editors=%s",
             result.session_id,
-            result.editor_command or "(none)",
+            [option.identifier for option in result.available_editors] or "(none)",
         )
         content = render_page(message)
         self._send_html(content, status=HTTPStatus.CREATED)
+
+    def _handle_launch_editor(self, parsed) -> None:
+        segments = [segment for segment in parsed.path.split("/") if segment]
+        if len(segments) != 3 or segments[0] != "sessions" or segments[2] != "launch":
+            self.send_error(HTTPStatus.NOT_FOUND.value, "잘못된 세션 경로입니다.")
+            return
+        session_id = segments[1]
+        session = SESSION_STORE.get(session_id)
+        if not session:
+            LOGGER.warning("존재하지 않는 세션에 대한 에디터 실행 요청: %s", session_id)
+            self.send_error(HTTPStatus.NOT_FOUND.value, "세션을 찾을 수 없습니다.")
+            return
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self._send_html(render_page("잘못된 요청입니다.", error=True), status=HTTPStatus.BAD_REQUEST)
+            return
+        data = self.rfile.read(content_length).decode("utf-8")
+        payload = parse_qs(data)
+        editor_id = payload.get("editor_id", [""])[0].strip()
+        if not editor_id:
+            LOGGER.debug("에디터 식별자가 비어 있습니다: session_id=%s", session_id)
+            self._send_html(
+                render_page("에디터를 선택해 주세요.", error=True),
+                status=HTTPStatus.BAD_REQUEST,
+            )
+            return
+        session.available_editors = list(detect_editor_options())
+        option = next((opt for opt in session.available_editors if opt.identifier == editor_id), None)
+        if not option:
+            LOGGER.warning(
+                "선택한 에디터를 사용할 수 없습니다: session_id=%s, editor_id=%s",
+                session_id,
+                editor_id,
+            )
+            self._send_html(
+                render_page("선택한 에디터를 현재 사용할 수 없습니다.", error=True),
+                status=HTTPStatus.BAD_REQUEST,
+            )
+            return
+        try:
+            launch_editor(option, session.session_dir)
+        except WorkspaceError as exc:
+            LOGGER.error(
+                "에디터 실행 실패: session_id=%s, editor=%s, error=%s",
+                session.session_id,
+                option.identifier,
+                exc,
+            )
+            self._send_html(render_page(str(exc), error=True), status=HTTPStatus.BAD_REQUEST)
+            return
+        session.editor_command = " ".join(option.args)
+        session.editor_info = option.info
+        LOGGER.info(
+            "에디터 실행 완료: session_id=%s, editor=%s",
+            session.session_id,
+            option.identifier,
+        )
+        message = f"{option.label} 에디터를 실행했습니다."
+        if option.info:
+            message += f" 추가 정보: {option.info}"
+        self._send_html(render_page(message))
 
     def _handle_session_page(self, parsed) -> None:
         segments = [segment for segment in parsed.path.split("/") if segment]
@@ -805,6 +983,7 @@ class WorkspaceRequestHandler(BaseHTTPRequestHandler):
             LOGGER.warning("존재하지 않는 세션 페이지 요청: %s", session_id)
             self.send_error(HTTPStatus.NOT_FOUND.value, "세션을 찾을 수 없습니다.")
             return
+        session.available_editors = list(detect_editor_options())
         TERMINAL_MANAGER.ensure(session.session_id, session.session_dir)
         LOGGER.info("세션 페이지 열기: session_id=%s", session.session_id)
         content = render_workspace_page(session)

@@ -5,10 +5,10 @@ import os
 import re
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SESSION_ROOT = ROOT_DIR / "session"
@@ -22,6 +22,14 @@ class WorkspaceError(RuntimeError):
 
 
 @dataclass
+class EditorOption:
+    identifier: str
+    label: str
+    args: List[str]
+    info: Optional[str] = None
+
+
+@dataclass
 class SessionResult:
     session_id: str
     session_dir: Path
@@ -29,6 +37,7 @@ class SessionResult:
     repo_url: str
     editor_command: Optional[str]
     editor_info: Optional[str] = None
+    available_editors: List[EditorOption] = field(default_factory=list)
 
 
 def slugify(value: str) -> str:
@@ -84,26 +93,55 @@ def apply_devcontainer_template(session_dir: Path, project_name: str) -> None:
     LOGGER.info("devcontainer 템플릿을 생성했습니다: %s", devcontainer_path)
 
 
-def _try_open_with_editor(session_dir: Path) -> tuple[Optional[str], Optional[str]]:
-    candidates = [
-        ("code", None),
-        ("code-insiders", None),
-        ("code-server", "http://127.0.0.1:8080"),
-    ]
-    for command, info in candidates:
-        if shutil.which(command):
-            try:
-                subprocess.Popen([command, str(session_dir)])
-                return command, info
-            except OSError:
-                continue
+def detect_editor_options() -> List[EditorOption]:
+    options: List[EditorOption] = []
+
+    if shutil.which("code"):
+        options.append(
+            EditorOption(
+                identifier="code",
+                label="Visual Studio Code (code)",
+                args=["code"],
+            )
+        )
+
+    if shutil.which("code-insiders"):
+        options.append(
+            EditorOption(
+                identifier="code-insiders",
+                label="Visual Studio Code Insiders",
+                args=["code-insiders"],
+            )
+        )
+
+    if shutil.which("code-server"):
+        options.append(
+            EditorOption(
+                identifier="code-server",
+                label="code-server",
+                args=["code-server"],
+                info="http://127.0.0.1:8080",
+            )
+        )
+
     if os.name == "posix" and shutil.which("open"):
-        try:
-            subprocess.Popen(["open", "-a", "Visual Studio Code", str(session_dir)])
-            return "open", None
-        except OSError:
-            pass
-    return None, None
+        options.append(
+            EditorOption(
+                identifier="macos-open-vscode",
+                label="Visual Studio Code (macOS)",
+                args=["open", "-a", "Visual Studio Code"],
+            )
+        )
+
+    return options
+
+
+def launch_editor(option: EditorOption, session_dir: Path) -> None:
+    command = option.args + [str(session_dir)]
+    try:
+        subprocess.Popen(command)
+    except OSError as exc:
+        raise WorkspaceError(f"에디터 실행에 실패했습니다: {exc}") from exc
 
 
 def create_session(repo_url: str, project_name: str) -> SessionResult:
@@ -118,13 +156,15 @@ def create_session(repo_url: str, project_name: str) -> SessionResult:
 
     apply_devcontainer_template(session_dir, project_name)
 
-    editor_command, editor_info = _try_open_with_editor(session_dir)
+    available_editors = detect_editor_options()
+    editor_command = None
+    editor_info = None
 
     session_id = session_dir.name
     LOGGER.info(
-        "세션 구성이 완료되었습니다: session_id=%s, editor=%s",
+        "세션 구성이 완료되었습니다: session_id=%s, available_editors=%s",
         session_id,
-        editor_command or "(none)",
+        [option.identifier for option in available_editors] or "(none)",
     )
 
     return SessionResult(
@@ -134,4 +174,5 @@ def create_session(repo_url: str, project_name: str) -> SessionResult:
         repo_url=repo_url,
         editor_command=editor_command,
         editor_info=editor_info,
+        available_editors=available_editors,
     )
