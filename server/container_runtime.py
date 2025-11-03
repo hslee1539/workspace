@@ -24,6 +24,41 @@ class ContainerInfo:
     labels: Dict[str, str]
 
 
+@dataclass
+class ImageInfo:
+    """Information about an available container image."""
+
+    repository: str
+    tag: str
+    image_id: str
+    created_since: str
+    size: str
+
+    @property
+    def reference(self) -> str:
+        """Return the preferred reference for the image."""
+
+        repository = self.repository if self.repository != "<none>" else ""
+        tag = self.tag if self.tag != "<none>" else ""
+        if repository and tag:
+            return f"{repository}:{tag}"
+        if repository:
+            return repository
+        if tag:
+            return tag
+        return self.image_id
+
+    def to_dict(self) -> Dict[str, str]:
+        return {
+            "repository": self.repository,
+            "tag": self.tag,
+            "id": self.image_id,
+            "created": self.created_since,
+            "size": self.size,
+            "reference": self.reference,
+        }
+
+
 class ContainerRuntime:
     """Wrapper around Docker/Podman CLI for session management."""
 
@@ -132,6 +167,26 @@ class ContainerRuntime:
         if not data:
             raise ContainerRuntimeError(f"Container '{name}' not found")
         return data[0]
+
+    def list_images(self) -> List[ImageInfo]:
+        """Return the images available to the runtime."""
+
+        result = self._run("image", "ls", "--format", "{{json .}}")
+        images: List[ImageInfo] = []
+        for line in result.stdout.splitlines():
+            if not line.strip():
+                continue
+            info = json.loads(line)
+            images.append(
+                ImageInfo(
+                    repository=info.get("Repository", ""),
+                    tag=info.get("Tag", ""),
+                    image_id=info.get("ID", ""),
+                    created_since=info.get("CreatedSince", ""),
+                    size=info.get("Size", ""),
+                )
+            )
+        return images
 
     @staticmethod
     def _parse_labels(raw: Optional[str]) -> Dict[str, str]:

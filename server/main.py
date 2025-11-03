@@ -46,6 +46,7 @@ class SessionDependency:
             raise RuntimeError(str(exc)) from exc
         base_dir = Path(os.environ.get("SESSION_BASE_DIR", "sessions"))
         self.manager = SessionManager(base_dir=base_dir, runtime=runtime)
+        self.runtime = runtime
 
 
 session_dependency = SessionDependency()
@@ -62,6 +63,15 @@ async def root() -> FileResponse:
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.get("/api/images")
+async def list_images():
+    try:
+        images = session_dependency.runtime.list_images()
+    except ContainerRuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"images": [image.to_dict() for image in images]}
 
 
 @app.get("/api/sessions")

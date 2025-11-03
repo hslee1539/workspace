@@ -22,15 +22,30 @@
   <body>
     <header>
       <h1>컨테이너 세션 관리</h1>
-      <section class="session-form">
-        <input id="session-name" type="text" placeholder="세션 이름" />
-        <input id="session-image" type="text" placeholder="컨테이너 이미지" />
-        <button id="create-session">세션 생성</button>
-      </section>
-      <section class="session-list">
-        <h2>세션 목록</h2>
-        <ul id="sessions"></ul>
-      </section>
+      <div class="header-content">
+        <section class="card">
+          <h2>새 세션</h2>
+          <div class="session-form">
+            <input id="session-name" type="text" placeholder="세션 이름" />
+            <input id="session-image" type="text" placeholder="컨테이너 이미지" />
+            <button id="create-session">세션 생성</button>
+          </div>
+        </section>
+        <section class="card image-selector">
+          <div class="section-header">
+            <h2>컨테이너 이미지</h2>
+            <button id="refresh-images" type="button">새로 고침</button>
+          </div>
+          <div class="image-list" id="image-list"></div>
+        </section>
+        <section class="card session-list">
+          <div class="section-header">
+            <h2>세션 목록</h2>
+            <button id="refresh-sessions" type="button">새로 고침</button>
+          </div>
+          <ul id="sessions"></ul>
+        </section>
+      </div>
     </header>
     <main>
       <aside id="file-panel">

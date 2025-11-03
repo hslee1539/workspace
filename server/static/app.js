@@ -2,6 +2,9 @@ const sessionsList = document.getElementById("sessions");
 const createSessionBtn = document.getElementById("create-session");
 const sessionNameInput = document.getElementById("session-name");
 const sessionImageInput = document.getElementById("session-image");
+const imageListEl = document.getElementById("image-list");
+const refreshImagesBtn = document.getElementById("refresh-images");
+const refreshSessionsBtn = document.getElementById("refresh-sessions");
 const fileTreeEl = document.getElementById("file-tree");
 const refreshFilesBtn = document.getElementById("refresh-files");
 const editorTabsEl = document.getElementById("editor-tabs");
@@ -12,6 +15,7 @@ const newTerminalBtn = document.getElementById("new-terminal");
 
 let currentSessionId = null;
 let sessions = [];
+let availableImages = [];
 const openEditors = new Map();
 const openTerminals = new Map();
 
@@ -39,27 +43,112 @@ async function loadSessions() {
   renderSessions();
 }
 
+async function loadImages() {
+  try {
+    const data = await apiRequest("/api/images");
+    availableImages = data.images || [];
+    renderImages();
+  } catch (error) {
+    console.error("이미지 목록을 불러오지 못했습니다.", error);
+    availableImages = [];
+    const message = error instanceof Error && error.message
+      ? `이미지를 불러오는 중 오류: ${error.message}`
+      : "이미지를 불러오지 못했습니다.";
+    renderImageMessage(message);
+  }
+}
+
+function renderImageMessage(message) {
+  if (!imageListEl) return;
+  imageListEl.innerHTML = "";
+  const empty = document.createElement("div");
+  empty.className = "empty";
+  empty.textContent = message;
+  imageListEl.appendChild(empty);
+  updateImageSelection();
+}
+
+function renderImages() {
+  if (!imageListEl) return;
+  imageListEl.innerHTML = "";
+  if (!availableImages.length) {
+    renderImageMessage("사용 가능한 이미지가 없습니다.");
+    return;
+  }
+  availableImages.forEach((image) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "image-item";
+    button.dataset.reference = image.reference;
+    button.title = `${image.reference}\n${image.id}`;
+
+    const title = document.createElement("strong");
+    title.textContent = image.reference;
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    const metaParts = [];
+    if (image.size) metaParts.push(image.size);
+    if (image.created) metaParts.push(image.created);
+    meta.textContent = metaParts.join(" · ") || "정보 없음";
+
+    button.append(title, meta);
+    button.addEventListener("click", () => {
+      sessionImageInput.value = image.reference;
+      updateImageSelection();
+    });
+    imageListEl.appendChild(button);
+  });
+  updateImageSelection();
+}
+
+function updateImageSelection() {
+  if (!imageListEl) return;
+  const value = sessionImageInput.value.trim();
+  const items = imageListEl.querySelectorAll(".image-item");
+  items.forEach((item) => {
+    item.classList.toggle("active", Boolean(value) && item.dataset.reference === value);
+  });
+}
+
 function renderSessions() {
   sessionsList.innerHTML = "";
+  if (sessions.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "empty";
+    empty.textContent = "생성된 세션이 없습니다.";
+    sessionsList.appendChild(empty);
+    return;
+  }
+
   sessions.forEach((session) => {
     const li = document.createElement("li");
     li.dataset.id = session.id;
-    if (currentSessionId === session.id) {
-      li.classList.add("active");
-    }
+    li.classList.toggle("active", currentSessionId === session.id);
 
     const info = document.createElement("div");
     info.className = "info";
-    info.innerHTML = `<strong>${session.name}</strong><span>${session.status}</span>`;
+
+    const nameEl = document.createElement("strong");
+    nameEl.textContent = session.name || "(이름 없음)";
+    const imageEl = document.createElement("span");
+    imageEl.className = "image";
+    imageEl.textContent = session.image || "이미지 정보 없음";
+    const statusEl = document.createElement("span");
+    statusEl.className = "status";
+    statusEl.textContent = session.status || "상태 정보 없음";
+
+    info.append(nameEl, imageEl, statusEl);
 
     const actions = document.createElement("div");
     actions.className = "actions";
 
     const openBtn = document.createElement("button");
+    openBtn.type = "button";
     openBtn.textContent = "열기";
     openBtn.addEventListener("click", () => selectSession(session.id));
 
     const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
     removeBtn.textContent = "종료";
     removeBtn.addEventListener("click", async () => {
       if (!confirm("세션을 종료할까요?")) return;
@@ -359,11 +448,20 @@ async function createSession() {
 }
 
 createSessionBtn.addEventListener("click", createSession);
+sessionImageInput.addEventListener("input", updateImageSelection);
 sessionImageInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     createSession();
   }
 });
+
+if (refreshSessionsBtn) {
+  refreshSessionsBtn.addEventListener("click", loadSessions);
+}
+
+if (refreshImagesBtn) {
+  refreshImagesBtn.addEventListener("click", loadImages);
+}
 
 refreshFilesBtn.addEventListener("click", refreshFileTree);
 newTerminalBtn.addEventListener("click", createTerminal);
@@ -372,3 +470,4 @@ window.addEventListener("resize", () => {
 });
 
 loadSessions();
+loadImages();
