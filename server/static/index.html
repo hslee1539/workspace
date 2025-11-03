@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>Workspace Session Manager</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/codemirror.min.css"
+      integrity="sha512-Pi0x+uNs/XqeLXZ9MJrcHyxXZsvdT6bIPl3S3NGMSkcNvjVtLg2EtwxKM47U5N0hb7V1nB+sQPUwEGgS8NxU0g=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/xterm/5.3.0/xterm.min.css"
+      integrity="sha512-RaFJ+SCT5NTFvLt50C4mxK1sbkgqQv83FYGPQsc2ZKX/s9ws9y6KAb4AenrpJ8FIBESlotvXwltW5m8MyG9mkw=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    />
+  </head>
+  <body>
+    <header>
+      <h1>컨테이너 세션 관리</h1>
+      <div class="header-content">
+        <section class="card">
+          <h2>새 세션</h2>
+          <div class="session-form">
+            <input id="session-name" type="text" placeholder="세션 이름" />
+            <input id="session-image" type="text" placeholder="컨테이너 이미지" />
+            <button id="create-session">세션 생성</button>
+          </div>
+        </section>
+        <section class="card image-selector">
+          <div class="section-header">
+            <h2>컨테이너 이미지</h2>
+            <button id="refresh-images" type="button">새로 고침</button>
+          </div>
+          <div class="image-list" id="image-list"></div>
+        </section>
+        <section class="card session-list">
+          <div class="section-header">
+            <h2>세션 목록</h2>
+            <button id="refresh-sessions" type="button">새로 고침</button>
+          </div>
+          <ul id="sessions"></ul>
+        </section>
+      </div>
+    </header>
+    <main>
+      <aside id="file-panel">
+        <div class="panel-header">
+          <span>파일 탐색기</span>
+          <button id="refresh-files">새로 고침</button>
+        </div>
+        <ul id="file-tree"></ul>
+      </aside>
+      <section id="workspace-panel">
+        <div class="editors">
+          <div class="tab-bar" id="editor-tabs">
+            <span class="placeholder">열린 파일이 없습니다.</span>
+          </div>
+          <div id="editor-container"></div>
+        </div>
+        <div class="terminals">
+          <div class="tab-bar" id="terminal-tabs">
+            <button id="new-terminal">+ 터미널</button>
+          </div>
+          <div id="terminal-container"></div>
+        </div>
+      </section>
+    </main>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/codemirror.min.js"
+      integrity="sha512-Fg10o5tTiVtt0de0h1xCrG43O0/FaewiJxSySguUWBJXPoBmyy8zxfvWYsgBjLLdrn0bM1jaxAg/P6nxsVXniQ=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/javascript/javascript.min.js"
+      integrity="sha512-YoqzxYl8KKoeSU9B+ZOLX4elE4I45Blht41f49XTNbN9YvfR9ooE8kkTDqs6PhglXai1Trzwtvs7RR1HSFhpcA=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/xterm/5.3.0/xterm.min.js"
+      integrity="sha512-QV84vD2Ttz6GHco6P5ZAhgGI32RGXs/43mEwYPUINx9+k3nFJKO1T3BsGLwz6z6J5wJBRKWBiqmVq97BYuUEaw=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
+    <script src="/static/app.js" type="module"></script>
+  </body>
+</html>

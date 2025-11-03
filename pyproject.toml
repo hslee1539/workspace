@@ -1,0 +1,29 @@
+[project]
+name = "workspace-server"
+version = "0.1.0"
+description = "Session management server for container-based Android dev workspace"
+authors = [{name = "Workspace"}]
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.110.0,<1.0.0",
+  "uvicorn[standard]>=0.23.0,<1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "watchfiles>=0.21.0",
+]
+
+[build-system]
+requires = []
+build-backend = "workspace_build_backend"
+backend-path = ["."]
+
+[tool.setuptools]
+packages = ["server"]
+
+[tool.setuptools.package-data]
+server = [
+  "static/*",
+  "static/**/*",
+]

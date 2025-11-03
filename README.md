@@ -58,3 +58,15 @@ Linux에서 `host.docker.internal` 이 동작하지 않는다면 Docker를 최�
 
 ## TODO
 - [ ] JetBrains Fleet Dev Container 자동화 스크립트 및 가이드 공개 (준비 중)
+
+
+## 세션 관리 서버 실행
+컨테이너 기반 개발 세션을 웹에서 생성하고 관리할 수 있는 FastAPI 서버를 제공합니다.
+
+```bash
+pip install -e .
+uvicorn server.main:app --reload
+```
+
+환경 변수로 `CONTAINER_RUNTIME` (기본값: docker) 와 `SESSION_BASE_DIR` (기본값: sessions)를 지정하여 런타임과 워크스페이스 저장 경로를 변경할 수 있습니다.
+서버에 접속하면 세션 생성, 파일 탐색/편집(탭 지원), 웹 터미널(탭 지원)을 사용할 수 있습니다.
